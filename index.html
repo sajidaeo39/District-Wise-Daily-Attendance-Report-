@@ -1,0 +1,69 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Punjab District Wise Daily Attendance</title>
+<style>
+*{box-sizing:border-box}body{margin:0;background:#f3f7fa;color:#173247;font-family:Segoe UI,Arial,sans-serif}
+.wrap{max-width:1550px;margin:auto;padding:18px}.head,.toolbar,.tablebox,.card{background:#fff;border:1px solid #dce6ed;border-radius:14px;box-shadow:0 3px 12px #0000000b}
+.head{text-align:center;padding:21px}.head h1{margin:0;font-size:28px}.head p{margin:7px 0;color:#687887}.badge{display:inline-block;padding:5px 12px;border-radius:20px;background:#e8f5f1;color:#087c6d;font-size:12px;font-weight:700}
+.cards{display:grid;grid-template-columns:repeat(8,1fr);gap:10px;margin:14px 0}.card{padding:13px;text-align:center}.label{font-size:10px;color:#71808d;text-transform:uppercase}.value{font-size:22px;font-weight:800;margin-top:7px}.green{color:#087c6d}.red{color:#bc3b35}
+.toolbar{padding:12px;display:flex;gap:9px;justify-content:center;flex-wrap:wrap}.toolbar input,.toolbar select,.toolbar button{height:37px;border:1px solid #cdd8e0;border-radius:8px;background:#fff;padding:0 12px}.toolbar input{min-width:260px}.toolbar button{font-weight:700;color:#17445e;cursor:pointer}
+.status{text-align:center;margin:10px 0;font-size:12px;color:#657684}.tablebox{overflow:auto}table{width:100%;border-collapse:collapse;min-width:1350px}th{background:#173f5f;color:white;padding:11px 8px;font-size:11px;white-space:nowrap}td{padding:9px 8px;border-bottom:1px solid #e8edf1;text-align:center;font-size:12px;white-space:nowrap}td:first-child{text-align:left;font-weight:700}.pct{font-weight:800}.footer{text-align:center;padding:12px;color:#71808e;font-size:11px}
+@media(max-width:1100px){.cards{grid-template-columns:repeat(4,1fr)}}@media(max-width:600px){.cards{grid-template-columns:repeat(2,1fr)}.wrap{padding:9px}.head h1{font-size:21px}}
+@media print{.toolbar,.status{display:none}.wrap{padding:0}.head,.card,.tablebox{box-shadow:none}}
+</style></head>
+<body><div class="wrap">
+<div class="head"><h1>Punjab District Wise Daily Attendance Progress</h1><p>Teacher & Student Attendance Monitoring — Punjab</p><span class="badge">DISTRICT LEVEL ONLY</span></div>
+<div class="cards">
+<div class="card"><div class="label">Districts</div><div class="value" id="districts">—</div></div>
+<div class="card"><div class="label">Total Schools</div><div class="value" id="schools">—</div></div>
+<div class="card"><div class="label">Total Teachers</div><div class="value" id="teachers">—</div></div>
+<div class="card"><div class="label">Teacher Attendance</div><div class="value green" id="teacher">—</div></div>
+<div class="card"><div class="label">Total Students</div><div class="value" id="students">—</div></div>
+<div class="card"><div class="label">Student Attendance</div><div class="value green" id="student">—</div></div>
+<div class="card"><div class="label">Overall Attendance</div><div class="value green" id="overall">—</div></div>
+<div class="card"><div class="label">Incomplete Districts</div><div class="value red" id="bad">—</div></div>
+</div>
+<div class="toolbar"><input id="q" placeholder="Search district...">
+<select id="sort"><option value="district">District A–Z</option><option value="teacher_attendance_pct">Teacher Attendance</option><option value="student_attendance_pct">Student Attendance</option><option value="overall_attendance_pct">Overall Attendance</option></select>
+<button onclick="resetAll()">Reset</button><button onclick="window.print()">Print / PDF</button><button onclick="csv()">Excel / CSV</button></div>
+<div class="status" id="status">Loading live district data…</div>
+<div class="tablebox"><table><thead><tr>
+<th>District</th><th>Total Schools</th><th>Total Teachers</th><th>Teachers Present</th><th>Teachers Absent</th><th>Teacher Attendance %</th>
+<th>Total Students</th><th>Students Present</th><th>Students Absent</th><th>Student Attendance %</th><th>Overall Attendance %</th>
+</tr></thead><tbody id="body"></tbody></table></div>
+<div class="footer">Source: Punjab School Information System (SIS) • District-level aggregation only</div>
+</div>
+<script>
+let all=[];
+const n=x=>x==null||x===""?"—":Number(x).toLocaleString();
+const p=x=>x==null||x===""?"—":Number(x).toFixed(2)+"%";
+async function load(){
+ try{
+  const r=await fetch("data/punjab_district_attendance.json?t="+Date.now(),{cache:"no-store"});
+  if(!r.ok)throw Error("HTTP "+r.status); const d=await r.json(); all=d.districts||[];
+  document.getElementById("status").textContent="Last collector update: "+new Date(d.generated_at).toLocaleString()+" • "+d.complete_districts+"/"+d.district_count+" districts ready";
+  const ok=all.filter(x=>x.status==="OK");
+  document.getElementById("districts").textContent=all.length;
+  document.getElementById("bad").textContent=all.length-ok.length;
+  const sum=k=>ok.reduce((a,x)=>a+(Number(x[k])||0),0);
+  document.getElementById("schools").textContent=n(sum("total_schools"));
+  document.getElementById("teachers").textContent=n(sum("total_teachers"));
+  document.getElementById("students").textContent=n(sum("total_students"));
+  document.getElementById("teacher").textContent=p(sum("teacher_attendance_pct")/Math.max(1,ok.length));
+  document.getElementById("student").textContent=p(sum("student_attendance_pct")/Math.max(1,ok.length));
+  document.getElementById("overall").textContent=p(sum("overall_attendance_pct")/Math.max(1,ok.length));
+  render();
+ }catch(e){document.getElementById("status").textContent="Live data not available yet: "+e.message}
+}
+function render(){
+ const q=document.getElementById("q").value.toLowerCase(),s=document.getElementById("sort").value;
+ let rows=all.filter(x=>x.district.toLowerCase().includes(q));
+ rows.sort((a,b)=>s==="district"?a.district.localeCompare(b.district):(Number(b[s])||0)-(Number(a[s])||0));
+ document.getElementById("body").innerHTML=rows.map(x=>`<tr><td>${x.district}</td><td>${n(x.total_schools)}</td><td>${n(x.total_teachers)}</td><td>${n(x.teachers_present)}</td><td>${n(x.teachers_absent)}</td><td class="pct">${p(x.teacher_attendance_pct)}</td><td>${n(x.total_students)}</td><td>${n(x.students_present)}</td><td>${n(x.students_absent)}</td><td class="pct">${p(x.student_attendance_pct)}</td><td class="pct">${p(x.overall_attendance_pct)}</td></tr>`).join("");
+}
+function resetAll(){q.value="";sort.value="district";render()}
+function csv(){let h="District,Total Schools,Total Teachers,Teachers Present,Teachers Absent,Teacher Attendance %,Total Students,Students Present,Students Absent,Student Attendance %,Overall Attendance %\n";let s=h+all.map(x=>[x.district,x.total_schools,x.total_teachers,x.teachers_present,x.teachers_absent,x.teacher_attendance_pct,x.total_students,x.students_present,x.students_absent,x.student_attendance_pct,x.overall_attendance_pct].join(",")).join("\\n");let a=document.createElement("a");a.href=URL.createObjectURL(new Blob([s],{type:"text/csv"}));a.download="Punjab_District_Attendance.csv";a.click()}
+q.oninput=render;sort.onchange=render;load();setInterval(load,300000);
+</script></body></html>
