@@ -3,8 +3,7 @@ name: Punjab District Attendance
 on:
   workflow_dispatch:
   schedule:
-    - cron: '0 2 * * *'
-      timezone: 'Asia/Karachi'
+    - cron: "10 3,9,15,21 * * *"
 
 permissions:
   contents: write
