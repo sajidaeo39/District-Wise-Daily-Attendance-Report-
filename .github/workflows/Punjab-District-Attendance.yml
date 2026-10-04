@@ -4,6 +4,7 @@ on:
   workflow_dispatch:
   schedule:
     - cron: "10 3,9,15,21 * * *"
+      timezone: Asia/Karachi
 
 permissions:
   contents: write
@@ -17,7 +18,7 @@ concurrency:
 jobs:
   collect-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 60
+    timeout-minutes: 30
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
