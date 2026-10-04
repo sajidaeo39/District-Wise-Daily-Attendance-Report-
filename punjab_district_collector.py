@@ -76,14 +76,27 @@ def csrf(s):
 
 def district_options(s):
     html=request(s,"/dashboard",html=True)
-    opts=parse_options(html)
-    # Prefer options whose names look like Punjab districts; the public page
-    # contains multiple selectors, so de-duplicate by id/name.
-    uniq=[]; seen=set()
-    for x in opts:
-        if x not in seen: uniq.append(x); seen.add(x)
-    if len(uniq)>=20: return uniq
-    raise RuntimeError(f"Could not discover district selector from SIS dashboard; found {len(uniq)} options")
+    # SIS dashboard contains many unrelated <select> elements. Restrict
+    # parsing to the select whose id/name/class explicitly identifies district.
+    blocks=re.findall(r"<select\\b([^>]*)>(.*?)</select>",html or "",re.I|re.S)
+    candidates=[]
+    for attrs,body in blocks:
+        marker=(attrs+" "+body[:200]).lower()
+        if re.search(r"district",attrs,re.I):
+            opts=parse_options(body)
+            if 20 <= len(opts) <= 60:
+                candidates.append(opts)
+    if candidates:
+        # Use the selector with the largest plausible Punjab district list.
+        return max(candidates,key=len)
+    # Fallback: find a contiguous block containing the known district selector
+    # labels, but never accept the whole dashboard option pool.
+    for attrs,body in blocks:
+        opts=parse_options(body)
+        names={n.upper() for _,n in opts}
+        if "LAHORE" in names and "OKARA" in names and len(opts) <= 60:
+            return opts
+    raise RuntimeError("Could not isolate SIS district selector")
 
 def markazes(s,tehsil_id,token):
     data=request(s,"/user/get_markazes",{
