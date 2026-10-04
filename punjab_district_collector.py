@@ -169,51 +169,88 @@ def collect_markaz(s,district_id,tehsil_id,markaz_id,date_from,token):
             "student_enrolled":int(se),"student_present":int(stp),
             "student_absent":int(sta),"student_unmarked":int(su)}
 
+def district_attendance_direct(s,district_id,date_from):
+    """Fetch SIS attendance once at district scope; never traverse tehsil/markaz."""
+    html=request(s,"/dashboard/attendance_table",{
+        "district_id":district_id,"tehsil_id":"","markaz_id":"",
+        "date_from":date_from,"only_kpztp_districts":"false"},html=True)
+    rows=parse_rows(html)
+    vals=[]
+    for c in rows:
+        if len(c)<8: continue
+        joined=" ".join(c).lower()
+        if "emis" in joined or re.search(r"\b\d{8}\b",joined): continue
+        try:
+            enrolled,present,absent,unmarked=map(num,(c[2],c[3],c[5],c[7]))
+        except Exception:
+            continue
+        if enrolled>=present+absent and enrolled>0:
+            vals.append((enrolled,present,absent,unmarked))
+    if not vals:
+        raise RuntimeError(f"SIS returned no district-level attendance row for district {district_id}")
+    return {
+        "total_students":int(sum(x[0] for x in vals)),
+        "students_present":int(sum(x[1] for x in vals)),
+        "students_absent":int(sum(x[2] for x in vals)),
+        "students_unmarked":int(sum(x[3] for x in vals)),
+        "school_rows":len(vals)
+    }
+
+def district_teacher_direct(s,district_id):
+    """Fetch teacher attendance directly for the district."""
+    data=request(s,"/attendance/get_teachers_today_attendance_stats",{
+        "district":district_id,"tehsil":"","markaz":"","school":"",
+        "s_id_emis_code":"","ony_kpztp_districts":"false"})
+    if not isinstance(data,dict):
+        raise RuntimeError(f"SIS teacher district response was not JSON for {district_id}")
+    present=int(num(data.get("present_count")))
+    absent=int(num(data.get("absent_count")))
+    total=int(num(data.get("total_count") or data.get("total_teachers") or present+absent))
+    if total<=0: total=present+absent
+    if total<=0 or present+absent>total:
+        raise RuntimeError(f"SIS teacher district response invalid for {district_id}")
+    return total,present,absent
+
 def collect_district(s,did,dname,date_from):
-    token=csrf(s); out={"district_id":did,"district":dname,"total_schools":0,
-        "total_teachers":0,"teachers_present":0,"teachers_absent":0,
-        "teacher_attendance_pct":None,"total_students":0,"students_present":0,
-        "students_absent":0,"students_unmarked":0,"student_attendance_pct":None,
-        "overall_attendance_pct":None,"status":"ERROR","errors":[]}
-    ts=tehsils(s,did,token)
-    markaz_count=0
-    for tid,_ in ts:
-        for mid,_ in markazes(s,tid,token):
-            markaz_count+=1
-            try:
-                r=collect_markaz(s,did,tid,mid,date_from,token)
-                for ok, rk in [("total_schools","school_count"),("total_teachers","total_teachers"),("teachers_present","teacher_present"),("teachers_absent","teacher_absent"),("student_enrolled","student_enrolled"),("students_present","student_present"),("students_absent","student_absent"),("students_unmarked","student_unmarked")]:
-                    out[ok]=out.get(ok,0)+r[rk]
-            except Exception as e:
-                out["errors"].append(f"{tid}/{mid}: {e}")
-    out["total_students"]=out.pop("student_enrolled")
-    if out["total_teachers"]: out["teacher_attendance_pct"]=round(out["teachers_present"]/out["total_teachers"]*100,2)
-    if out["total_students"]: out["student_attendance_pct"]=round(out["students_present"]/out["total_students"]*100,2)
-    den=out["total_teachers"]+out["total_students"]
-    if den: out["overall_attendance_pct"]=round((out["teachers_present"]+out["students_present"])/den*100,2)
-    out["status"]="OK" if markaz_count and not out["errors"] else ("PARTIAL" if markaz_count else "ERROR")
-    out["markaz_count"]=markaz_count
+    out={"district_id":did,"district":dname,"status":"ERROR","errors":[]}
+    try:
+        a=district_attendance_direct(s,did,date_from)
+        tt,tp,ta=district_teacher_direct(s,did)
+        out.update({
+            "total_schools":a["school_rows"] if a["school_rows"]>1 else None,
+            "total_teachers":tt,"teachers_present":tp,"teachers_absent":ta,
+            "teacher_attendance_pct":round(tp/tt*100,2),
+            "total_students":a["total_students"],
+            "students_present":a["students_present"],
+            "students_absent":a["students_absent"],
+            "students_unmarked":a["students_unmarked"],
+            "student_attendance_pct":round(a["students_present"]/a["total_students"]*100,2) if a["total_students"] else None,
+            "overall_attendance_pct":round((tp+a["students_present"])/(tt+a["total_students"])*100,2) if (tt+a["total_students"]) else None,
+            "status":"OK"
+        })
+    except Exception as e:
+        out["errors"]=[str(e)]
     return out
 
 def collect():
-    s=session(); districts=district_options(s)
+    s=session()
+    districts=district_options(s)
     date_from=datetime.now().strftime("%d/%m/%Y")
-    out=[]; errors=[]
-    # Sequential districts keep SIS load reasonable; each district itself uses
-    # a single session and many markaz calls.
+    out=[]
     for did,dname in districts:
-        try:
-            rec=collect_district(s,did,dname,date_from)
-            out.append(rec); print(dname,rec["status"],rec["markaz_count"])
-        except Exception as e:
-            out.append({"district_id":did,"district":dname,"status":"ERROR","errors":[str(e)]})
-            errors.append([dname,str(e)])
-    payload={"generated_at":datetime.now(timezone.utc).isoformat(),"source":BASE+"/dashboard",
-             "attendance_date":date_from,"level":"district","district_count":len(out),
-             "complete_districts":sum(x.get("status")=="OK" for x in out),"errors":errors,"districts":out}
-    OUT.parent.mkdir(parents=True,exist_ok=True); OUT.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
-    if len(out)<20 or payload["complete_districts"]<len(out):
-        raise RuntimeError(f"Punjab district collection incomplete: {payload['complete_districts']}/{len(out)} complete")
+        rec=collect_district(s,did,dname,date_from)
+        out.append(rec)
+        print(dname,rec["status"])
+    complete=sum(x.get("status")=="OK" for x in out)
+    payload={"generated_at":datetime.now(timezone.utc).isoformat(),
+             "source":BASE+"/dashboard","attendance_date":date_from,
+             "level":"district","district_count":len(out),
+             "complete_districts":complete,"errors":[],
+             "districts":out}
+    OUT.parent.mkdir(parents=True,exist_ok=True)
+    OUT.write_text(json.dumps(payload,ensure_ascii=False,indent=2),encoding="utf-8")
+    if len(out)<20 or complete<len(out):
+        raise RuntimeError(f"Punjab district collection incomplete: {complete}/{len(out)} complete")
 
 if __name__=="__main__":
     ap=argparse.ArgumentParser(); ap.add_argument("--date",default=None); args=ap.parse_args(); collect()
