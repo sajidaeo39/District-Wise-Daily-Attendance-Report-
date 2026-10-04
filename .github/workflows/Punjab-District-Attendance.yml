@@ -1,6 +1,8 @@
 name: Punjab District Attendance
 
 on:
+  push:
+    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "10 3,9,15,21 * * *"
