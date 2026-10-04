@@ -1,15 +1,15 @@
 # -*- coding: utf-8 -*-
 """Punjab SIS district-wise daily attendance collector.
 
-Base: working Okara attendance dashboard pattern.
-District mode intentionally avoids Tehsil/Markaz/School traversal.
-
-SIS endpoints:
-  Teacher: /attendance/get_teachers_today_attendance_stats
-  Student: /dashboard/attendance_table
+Accuracy base: the working Okara attendance collector.
+The public dashboard remains DISTRICT ONLY; the collector aggregates
+official SIS Markaz-level responses underneath so district totals are
+complete and are never inferred from unsupported district summary rows.
 """
 import argparse, json, re
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timezone
+from html import unescape
 from pathlib import Path
 
 import requests
@@ -18,7 +18,8 @@ from urllib3.util.retry import Retry
 
 BASE = "https://sis.pesrp.edu.pk"
 OUT = Path("data/punjab_district_attendance.json")
-TIMEOUT = 60
+TIMEOUT = 45
+MAX_WORKERS = 20
 UA = ("Mozilla/5.0 (Windows NT 10.0; Win64; x64) "
       "AppleWebKit/537.36 (KHTML, like Gecko) Chrome/154 Safari/537.36")
 
@@ -38,18 +39,15 @@ def num(x):
 def make_session():
     s = requests.Session()
     retry = Retry(
-        total=3, connect=3, read=3, backoff_factor=.5,
+        total=4, connect=4, read=4, backoff_factor=.6,
         status_forcelist=[429, 500, 502, 503, 504],
         allowed_methods=frozenset(["GET"]),
         raise_on_status=False,
     )
     s.mount("https://", HTTPAdapter(
-        max_retries=retry, pool_connections=16, pool_maxsize=16
+        max_retries=retry, pool_connections=32, pool_maxsize=32
     ))
-    s.headers.update({
-        "User-Agent": UA,
-        "X-Requested-With": "XMLHttpRequest",
-    })
+    s.headers.update({"User-Agent": UA, "X-Requested-With": "XMLHttpRequest"})
     return s
 
 
@@ -59,8 +57,8 @@ def parse_options(text):
         r"<option[^>]*value\s*=\s*['\"]([^'\"]*)['\"][^>]*>\s*(.*?)\s*</option>",
         text or "", re.I | re.S
     ):
-        name = clean(re.sub(r"<[^>]+>", " ", name))
         value = clean(value)
+        name = clean(unescape(re.sub(r"<[^>]+>", " ", name)))
         if value and name and name.lower() not in {
             "all", "select district", "all districts", "all tehsils", "all schools"
         }:
@@ -74,7 +72,7 @@ def parse_rows(html):
     rows = []
     for tr in re.findall(r"<tr\b[^>]*>(.*?)</tr>", str(html), re.I | re.S):
         cells = [
-            clean(re.sub(r"<[^>]+>", " ", c))
+            clean(unescape(re.sub(r"<[^>]+>", " ", c)))
             for c in re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", tr, re.I | re.S)
         ]
         if cells:
@@ -82,13 +80,13 @@ def parse_rows(html):
     return rows
 
 
-def get(s, path, params=None, html=False):
+def request(s, path, params=None, html=False):
     r = s.get(
         BASE + path, params=params, timeout=TIMEOUT,
         headers={
             "Accept": "text/html,application/json,text/javascript,*/*;q=0.01",
             "X-Requested-With": "XMLHttpRequest",
-            "Referer": BASE + "/",
+            "Referer": BASE + "/dashboard",
         },
     )
     r.raise_for_status()
@@ -100,161 +98,272 @@ def get(s, path, params=None, html=False):
         return r.text
 
 
+def csrf(s):
+    html = request(s, "/dashboard", html=True)
+    m = re.search(
+        r'name=["\']csrf_test_name["\'][^>]*value=["\']([^"\']+)',
+        html, re.I
+    )
+    return m.group(1) if m else s.cookies.get("csrf_cookie_name", "")
+
+
 def district_options(s):
-    html = get(s, "/dashboard", html=True)
+    html = request(s, "/dashboard", html=True)
     blocks = re.findall(r"<select\b([^>]*)>(.*?)</select>", html, re.I | re.S)
     candidates = []
     for attrs, body in blocks:
-        if "district" not in attrs.lower():
-            continue
-        opts = parse_options(body)
-        if 20 <= len(opts) <= 60:
-            candidates.append(opts)
+        if "district" in attrs.lower():
+            opts = parse_options(body)
+            if 20 <= len(opts) <= 60:
+                candidates.append(opts)
     if candidates:
         return max(candidates, key=len)
 
+    # Safe fallback: only accept the plausible Punjab district selector.
     for _, body in blocks:
         opts = parse_options(body)
         names = {n.upper() for _, n in opts}
-        if "LAHORE" in names and "OKARA" in names and len(opts) <= 60:
+        if "LAHORE" in names and "OKARA" in names and 20 <= len(opts) <= 60:
             return opts
     raise RuntimeError("Could not isolate SIS district selector")
 
 
-def teacher_stats(s, district_id):
-    data = get(s, "/attendance/get_teachers_today_attendance_stats", {
+def tehsils(s, district_id, token):
+    data = request(s, "/user/get_tehsils", {
         "district": district_id,
-        "tehsil": "",
-        "markaz": "",
+        "selectedTehsil": "false",
+        "all": "All",
+        "csrf_test_name": token,
+    })
+    html = data.get("html", "") if isinstance(data, dict) else str(data)
+    opts = parse_options(html)
+    if not opts:
+        raise RuntimeError(f"No tehsils returned for district {district_id}")
+    return opts
+
+
+def markazes(s, tehsil_id, token):
+    data = request(s, "/user/get_markazes", {
+        "tehsil": tehsil_id,
+        "selectedMarkaz": "false",
+        "all": "All",
+        "csrf_test_name": token,
+    })
+    html = data.get("html", "") if isinstance(data, dict) else str(data)
+    opts = parse_options(html)
+    if not opts:
+        raise RuntimeError(f"No markazes returned for tehsil {tehsil_id}")
+    return opts
+
+
+def student_attendance(s, district_id, tehsil_id, markaz_id, date_from):
+    html = request(s, "/dashboard/attendance_table", {
+        "district_id": district_id,
+        "tehsil_id": tehsil_id,
+        "markaz_id": markaz_id,
+        "date_from": date_from,
+        "only_kpztp_districts": "false",
+    }, html=True)
+
+    # Proven Okara school-row structure:
+    # # | EMIS - School | Enrolled | Present | % | Absent | % | Not Marked | %
+    total = {"enrolled": 0, "present": 0, "absent": 0, "unmarked": 0, "schools": 0}
+
+    for cells in parse_rows(html):
+        if len(cells) < 9:
+            continue
+        m = re.search(r"(?<!\d)(\d{8})(?!\d)", cells[1])
+        if not m:
+            continue
+
+        enrolled = int(num(cells[2]))
+        present = int(num(cells[3]))
+        absent = int(num(cells[5]))
+        attendance_total = max(enrolled, present + absent)
+        unmarked = max(0, attendance_total - present - absent)
+
+        total["enrolled"] += attendance_total
+        total["present"] += present
+        total["absent"] += absent
+        total["unmarked"] += unmarked
+        total["schools"] += 1
+
+    if total["schools"] == 0:
+        raise RuntimeError(
+            f"No school attendance rows: district={district_id}, "
+            f"tehsil={tehsil_id}, markaz={markaz_id}"
+        )
+    return total
+
+
+def teacher_attendance(s, district_id, tehsil_id, markaz_id):
+    data = request(s, "/attendance/get_teachers_today_attendance_stats", {
+        "district": district_id,
+        "tehsil": tehsil_id,
+        "markaz": markaz_id,
         "school": "",
         "s_id_emis_code": "",
         "ony_kpztp_districts": "false",
     })
     if not isinstance(data, dict):
-        raise RuntimeError("Teacher endpoint did not return JSON")
+        raise RuntimeError("Teacher attendance endpoint did not return JSON")
 
     present = int(num(data.get("present_count")))
     absent = int(num(data.get("absent_count")))
-    unmarked = int(num(data.get("unmarked_count")))
-    marked = int(num(data.get("marked_count")))
 
-    # SIS explicitly returns marked_count and unmarked_count.
-    # Their sum is the attendance population represented by this endpoint.
-    total = marked + unmarked
+    # Okara's proven method gets the denominator from the SIS
+    # sanctioned-posts "Filled" total at Markaz scope.
+    data2 = request(s, "/dashboard/sanctioned_posts_tab", {
+        "district_id": district_id,
+        "tehsil_id": tehsil_id,
+        "markaz_id": markaz_id,
+        "school_id": "",
+        "s_id_emis_code": "",
+    })
+    html = data2.get("data", "") if isinstance(data2, dict) else str(data2)
 
-    if total < present + absent:
+    filled = None
+    for row in parse_rows(html):
+        joined = " ".join(row).lower()
+        if row and (joined.startswith("total") or "overall" in joined):
+            nums = [num(c) for c in row[1:] if re.search(r"\d", c)]
+            if len(nums) >= 3:
+                # SIS table: Total, Filled, Vacant.
+                filled = int(max(0, nums[1]))
+                break
+
+    if filled is None:
         raise RuntimeError(
-            f"Invalid teacher totals: total={total}, "
-            f"present={present}, absent={absent}"
+            f"Filled staff total not found: district={district_id}, "
+            f"tehsil={tehsil_id}, markaz={markaz_id}"
+        )
+
+    if present + absent > filled:
+        raise RuntimeError(
+            f"Teacher attendance exceeds filled staff: "
+            f"{present}+{absent}>{filled}"
         )
 
     return {
-        "total_teachers": total,
-        "teachers_present": present,
-        "teachers_absent": absent,
-        "teachers_unmarked": unmarked,
-        "teachers_marked": marked,
-        "teacher_attendance_pct": round(present / total * 100, 2) if total else 0.0,
+        "total": filled,
+        "present": present,
+        "absent": absent,
+        "unmarked": max(0, filled - present - absent),
     }
 
 
-def student_stats(s, district_id, date_from):
-    """Use the same student attendance table used by the working Okara dashboard.
+def collect_markaz(s, district_id, tehsil_id, markaz_id, date_from):
+    st = student_attendance(s, district_id, tehsil_id, markaz_id, date_from)
+    tt = teacher_attendance(s, district_id, tehsil_id, markaz_id)
+    return {
+        "schools": st["schools"],
+        "teachers": tt["total"],
+        "teachers_present": tt["present"],
+        "teachers_absent": tt["absent"],
+        "teachers_unmarked": tt["unmarked"],
+        "students": st["enrolled"],
+        "students_present": st["present"],
+        "students_absent": st["absent"],
+        "students_unmarked": st["unmarked"],
+    }
 
-    At district scope, SIS returns summary rows rather than school EMIS rows.
-    We aggregate only rows that have the standard numeric attendance columns.
-    """
-    html = get(s, "/dashboard/attendance_table", {
-        "district_id": district_id,
-        "tehsil_id": "",
-        "markaz_id": "",
-        "date_from": date_from,
-        "only_kpztp_districts": "false",
-    }, html=True)
 
-    totals = {"enrolled": 0, "present": 0, "absent": 0, "unmarked": 0}
-    usable = 0
+def collect_district(s, district_id, district_name, date_from, token):
+    tehsil_list = tehsils(s, district_id, token)
+    tasks = []
+    for tid, tname in tehsil_list:
+        for mid, mname in markazes(s, tid, token):
+            tasks.append((tid, tname, mid, mname))
 
-    for cells in parse_rows(html):
-        # Okara dashboard's standard attendance row:
-        # name | enrolled | present | % | absent | % | not marked | %
-        if len(cells) >= 8:
-            candidates = [
-                (cells[1], cells[2], cells[3], cells[5], cells[7]),
-                (cells[2], cells[3], cells[4], cells[6], cells[8]) if len(cells) >= 9 else None,
-            ]
-            chosen = None
-            for c in candidates:
-                if not c:
-                    continue
-                name, enrolled, present, absent, unmarked = c
-                vals = [num(enrolled), num(present), num(absent), num(unmarked)]
-                if vals[0] >= vals[1] + vals[2] and vals[0] > 0:
-                    chosen = vals
-                    break
-            if chosen:
-                totals["enrolled"] += int(chosen[0])
-                totals["present"] += int(chosen[1])
-                totals["absent"] += int(chosen[2])
-                totals["unmarked"] += int(chosen[3])
-                usable += 1
+    agg = {
+        "total_schools": 0, "total_teachers": 0, "teachers_present": 0,
+        "teachers_absent": 0, "teachers_unmarked": 0,
+        "total_students": 0, "students_present": 0,
+        "students_absent": 0, "students_unmarked": 0,
+    }
+    errors = []
 
-    if usable == 0:
+    # Markaz requests are independent. Parallelize them, but never turn
+    # failed requests into zeros.
+    with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
+        futures = {
+            ex.submit(
+                collect_markaz, s, district_id, tid, mid, date_from
+            ): (tid, tname, mid, mname)
+            for tid, tname, mid, mname in tasks
+        }
+        for fut in as_completed(futures):
+            tid, tname, mid, mname = futures[fut]
+            try:
+                x = fut.result()
+                agg["total_schools"] += x["schools"]
+                agg["total_teachers"] += x["teachers"]
+                agg["teachers_present"] += x["teachers_present"]
+                agg["teachers_absent"] += x["teachers_absent"]
+                agg["teachers_unmarked"] += x["teachers_unmarked"]
+                agg["total_students"] += x["students"]
+                agg["students_present"] += x["students_present"]
+                agg["students_absent"] += x["students_absent"]
+                agg["students_unmarked"] += x["students_unmarked"]
+            except Exception as e:
+                errors.append(
+                    f"{tname}/{mname}: {type(e).__name__}: {e}"
+                )
+
+    # Completeness is strict: a district is OK only when every discovered
+    # Markaz was collected. This prevents partial data being shown as live.
+    complete = len(errors) == 0 and len(tasks) > 0
+    if not complete:
         raise RuntimeError(
-            f"No usable district student rows from /dashboard/attendance_table "
-            f"for district {district_id}"
+            f"{len(errors)} of {len(tasks)} Markaz collections failed. "
+            f"First error: {errors[0] if errors else 'unknown'}"
         )
 
-    total = totals["enrolled"]
-    totals.update({
-        "total_students": total,
-        "students_present": totals["present"],
-        "students_absent": totals["absent"],
-        "students_unmarked": totals["unmarked"],
-        "student_attendance_pct": round(totals["present"] / total * 100, 2) if total else 0.0,
-        "student_rows": usable,
-    })
-    return totals
+    tt = agg["total_teachers"]
+    st = agg["total_students"]
+    tp = agg["teachers_present"]
+    sp = agg["students_present"]
+    people = tt + st
 
-
-def collect_district(s, district_id, district_name, date_from):
-    out = {
+    return {
         "district_id": district_id,
         "district": district_name,
-        "status": "ERROR",
+        "status": "OK",
+        "total_schools": agg["total_schools"],
+        "total_teachers": tt,
+        "teachers_present": tp,
+        "teachers_absent": agg["teachers_absent"],
+        "teachers_unmarked": agg["teachers_unmarked"],
+        "teacher_attendance_pct": round(tp / tt * 100, 2) if tt else 0,
+        "total_students": st,
+        "students_present": sp,
+        "students_absent": agg["students_absent"],
+        "students_unmarked": agg["students_unmarked"],
+        "student_attendance_pct": round(sp / st * 100, 2) if st else 0,
+        "overall_attendance_pct": round((tp + sp) / people * 100, 2) if people else 0,
+        "markaz_count": len(tasks),
         "errors": [],
     }
-    try:
-        t = teacher_stats(s, district_id)
-        st = student_stats(s, district_id, date_from)
-
-        out.update(t)
-        out.update(st)
-        total_people = t["total_teachers"] + st["total_students"]
-        present_people = t["teachers_present"] + st["students_present"]
-        out["overall_attendance_pct"] = (
-            round(present_people / total_people * 100, 2)
-            if total_people else 0.0
-        )
-        out["total_schools"] = None
-        out["status"] = "OK"
-    except Exception as e:
-        out["errors"] = [str(e)]
-    return out
 
 
 def collect():
     s = make_session()
+    token = csrf(s)
     districts = district_options(s)
     date_from = datetime.now().astimezone().strftime("%d/%m/%Y")
 
     rows = []
-    for did, name in districts:
-        rec = collect_district(s, did, name, date_from)
-        rows.append(rec)
-        print(f"{name}: {rec['status']}")
-        if rec.get("errors"):
-            print("  ", rec["errors"][0])
+    for i, (did, name) in enumerate(districts, 1):
+        print(f"[{i}/{len(districts)}] {name}...")
+        try:
+            rows.append(collect_district(s, did, name, date_from, token))
+            print(f"  OK")
+        except Exception as e:
+            rows.append({
+                "district_id": did, "district": name, "status": "ERROR",
+                "errors": [str(e)]
+            })
+            print(f"  ERROR: {e}")
 
     complete = sum(x.get("status") == "OK" for x in rows)
     payload = {
