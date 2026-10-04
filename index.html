@@ -51,9 +51,12 @@ async function load(){
   document.getElementById("schools").textContent=n(sum("total_schools"));
   document.getElementById("teachers").textContent=n(sum("total_teachers"));
   document.getElementById("students").textContent=n(sum("total_students"));
-  document.getElementById("teacher").textContent=p(sum("teacher_attendance_pct")/Math.max(1,ok.length));
-  document.getElementById("student").textContent=p(sum("student_attendance_pct")/Math.max(1,ok.length));
-  document.getElementById("overall").textContent=p(sum("overall_attendance_pct")/Math.max(1,ok.length));
+  const teacherTotal=sum("total_teachers"),teacherPresent=sum("teachers_present");
+  const studentTotal=sum("total_students"),studentPresent=sum("students_present");
+  const peopleTotal=teacherTotal+studentTotal,peoplePresent=teacherPresent+studentPresent;
+  document.getElementById("teacher").textContent=p(teacherTotal?teacherPresent/teacherTotal*100:0);
+  document.getElementById("student").textContent=p(studentTotal?studentPresent/studentTotal*100:0);
+  document.getElementById("overall").textContent=p(peopleTotal?peoplePresent/peopleTotal*100:0);
   render();
  }catch(e){document.getElementById("status").textContent="Live data not available yet: "+e.message}
 }
