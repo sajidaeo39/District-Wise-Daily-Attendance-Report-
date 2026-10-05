@@ -246,6 +246,9 @@ def teacher_attendance(s, district_id, tehsil_id, markaz_id, school_id, emis_cod
     }
 
 def collect_markaz(s, district_id, tehsil_id, markaz_id, date_from, token):
+    # Each concurrent Markaz gets its own HTTP session. requests.Session is not
+    # shared across threads, which avoids intermittent SIS connection/cookie races.
+    s = make_session()
     # Student attendance is returned as school rows for a Markaz.
     st = student_attendance(s, district_id, tehsil_id, markaz_id, date_from)
 
