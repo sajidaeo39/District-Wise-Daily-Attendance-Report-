@@ -208,7 +208,7 @@ def get_filled_staff_from_sanctioned_posts(s, district_id, tehsil_id, markaz_id,
     for row in parse_rows(html):
         joined = " ".join(row).lower()
         if row and (joined.startswith("total") or "overall" in joined):
-            nums = [num(c) for c in row[1:] if re.search(r"\\d", c)]
+            nums = [num(c) for c in row[1:] if re.search(r"\d", c)]
             if len(nums) >= 3:
                 return int(max(0, nums[1]))
     raise RuntimeError(
@@ -268,8 +268,8 @@ def collect_markaz(s, district_id, tehsil_id, markaz_id, date_from, token):
 
     def one_school(item):
         sid, sname = item
-        m = re.search(r"(?<!\\d)(\\d{8})(?!\\d)", sname)
-        emis = m.group(1) if m else (sid if re.fullmatch(r"\\d{8}", sid) else "")
+        m = re.search(r"(?<!\d)(\d{8})(?!\d)", sname)
+        emis = m.group(1) if m else (sid if re.fullmatch(r"\d{8}", sid) else "")
         if not emis:
             raise RuntimeError(f"EMIS not found for school {sid}: {sname}")
 
