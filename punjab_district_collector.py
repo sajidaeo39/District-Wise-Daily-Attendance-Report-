@@ -196,13 +196,34 @@ def student_attendance(s, district_id, tehsil_id, markaz_id, date_from):
     return total
 
 
-def teacher_attendance(s, district_id, tehsil_id, markaz_id):
+def get_filled_staff_from_sanctioned_posts(s, district_id, tehsil_id, markaz_id, school_id, emis_code=""):
+    data = request(s, "/dashboard/sanctioned_posts_tab", {
+        "district_id": str(district_id),
+        "tehsil_id": str(tehsil_id),
+        "markaz_id": str(markaz_id),
+        "school_id": str(school_id),
+        "s_id_emis_code": str(emis_code or ""),
+    })
+    html = data.get("data", "") if isinstance(data, dict) else str(data)
+    for row in parse_rows(html):
+        joined = " ".join(row).lower()
+        if row and (joined.startswith("total") or "overall" in joined):
+            nums = [num(c) for c in row[1:] if re.search(r"\\d", c)]
+            if len(nums) >= 3:
+                return int(max(0, nums[1]))
+    raise RuntimeError(
+        f"Filled staff total not found: district={district_id}, "
+        f"tehsil={tehsil_id}, markaz={markaz_id}, school={school_id}"
+    )
+
+
+def teacher_attendance(s, district_id, tehsil_id, markaz_id, school_id, emis_code, filled_total):
     data = request(s, "/attendance/get_teachers_today_attendance_stats", {
         "district": district_id,
         "tehsil": tehsil_id,
         "markaz": markaz_id,
-        "school": "",
-        "s_id_emis_code": "",
+        "school": school_id,
+        "s_id_emis_code": emis_code,
         "ony_kpztp_districts": "false",
     })
     if not isinstance(data, dict):
@@ -210,63 +231,86 @@ def teacher_attendance(s, district_id, tehsil_id, markaz_id):
 
     present = int(num(data.get("present_count")))
     absent = int(num(data.get("absent_count")))
+    total = int(max(0, filled_total))
 
-    # Okara's proven method gets the denominator from the SIS
-    # sanctioned-posts "Filled" total at Markaz scope.
-    data2 = request(s, "/dashboard/sanctioned_posts_tab", {
-        "district_id": district_id,
-        "tehsil_id": tehsil_id,
-        "markaz_id": markaz_id,
-        "school_id": "",
-        "s_id_emis_code": "",
-    })
-    html = data2.get("data", "") if isinstance(data2, dict) else str(data2)
-
-    filled = None
-    for row in parse_rows(html):
-        joined = " ".join(row).lower()
-        if row and (joined.startswith("total") or "overall" in joined):
-            nums = [num(c) for c in row[1:] if re.search(r"\d", c)]
-            if len(nums) >= 3:
-                # SIS table: Total, Filled, Vacant.
-                filled = int(max(0, nums[1]))
-                break
-
-    if filled is None:
+    if present + absent > total:
         raise RuntimeError(
-            f"Filled staff total not found: district={district_id}, "
-            f"tehsil={tehsil_id}, markaz={markaz_id}"
-        )
-
-    if present + absent > filled:
-        raise RuntimeError(
-            f"Teacher attendance exceeds filled staff: "
-            f"{present}+{absent}>{filled}"
+            f"Teacher attendance exceeds filled staff: {present}+{absent}>{total}"
         )
 
     return {
-        "total": filled,
+        "total": total,
         "present": present,
         "absent": absent,
-        "unmarked": max(0, filled - present - absent),
+        "unmarked": max(0, total - present - absent),
     }
 
-
-def collect_markaz(s, district_id, tehsil_id, markaz_id, date_from):
+def collect_markaz(s, district_id, tehsil_id, markaz_id, date_from, token):
+    # Student attendance is returned as school rows for a Markaz.
     st = student_attendance(s, district_id, tehsil_id, markaz_id, date_from)
-    tt = teacher_attendance(s, district_id, tehsil_id, markaz_id)
+
+    # Teacher attendance must use the same school-level SIS denominator
+    # proven by the working Okara collector. Do not infer teacher totals
+    # from a Markaz-level sanctioned-posts summary.
+    school_data = request(s, "/user/get_schools", {
+        "markaz": markaz_id,
+        "selectedSchool": "false",
+        "all": "All",
+        "csrf_test_name": token,
+    })
+    html = school_data.get("html", "") if isinstance(school_data, dict) else str(school_data)
+    schools = parse_options(html)
+    if not schools:
+        raise RuntimeError(f"No schools returned for markaz {markaz_id}")
+
+    teacher_total = teacher_present = teacher_absent = 0
+    teacher_errors = []
+
+    def one_school(item):
+        sid, sname = item
+        m = re.search(r"(?<!\\d)(\\d{8})(?!\\d)", sname)
+        emis = m.group(1) if m else (sid if re.fullmatch(r"\\d{8}", sid) else "")
+        if not emis:
+            raise RuntimeError(f"EMIS not found for school {sid}: {sname}")
+
+        local = make_session()
+        filled = get_filled_staff_from_sanctioned_posts(
+            local, district_id, tehsil_id, markaz_id, sid, emis
+        )
+        ta = teacher_attendance(
+            local, district_id, tehsil_id, markaz_id, sid, emis, filled
+        )
+        return ta
+
+    with ThreadPoolExecutor(max_workers=min(20, max(1, len(schools)))) as ex:
+        futures = {ex.submit(one_school, item): item for item in schools}
+        for fut in as_completed(futures):
+            item = futures[fut]
+            try:
+                ta = fut.result()
+                teacher_total += ta["total"]
+                teacher_present += ta["present"]
+                teacher_absent += ta["absent"]
+            except Exception as e:
+                teacher_errors.append(f"{item[1]}: {type(e).__name__}: {e}")
+
+    if teacher_errors:
+        raise RuntimeError(
+            f"{len(teacher_errors)} of {len(schools)} school teacher collections failed. "
+            f"First error: {teacher_errors[0]}"
+        )
+
     return {
         "schools": st["schools"],
-        "teachers": tt["total"],
-        "teachers_present": tt["present"],
-        "teachers_absent": tt["absent"],
-        "teachers_unmarked": tt["unmarked"],
+        "teachers": teacher_total,
+        "teachers_present": teacher_present,
+        "teachers_absent": teacher_absent,
+        "teachers_unmarked": max(0, teacher_total - teacher_present - teacher_absent),
         "students": st["enrolled"],
         "students_present": st["present"],
         "students_absent": st["absent"],
         "students_unmarked": st["unmarked"],
     }
-
 
 def collect_district(s, district_id, district_name, date_from, token):
     tehsil_list = tehsils(s, district_id, token)
@@ -288,7 +332,7 @@ def collect_district(s, district_id, district_name, date_from, token):
     with ThreadPoolExecutor(max_workers=MAX_WORKERS) as ex:
         futures = {
             ex.submit(
-                collect_markaz, s, district_id, tid, mid, date_from
+                collect_markaz, s, district_id, tid, mid, date_from, token
             ): (tid, tname, mid, mname)
             for tid, tname, mid, mname in tasks
         }
