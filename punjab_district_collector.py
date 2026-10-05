@@ -156,42 +156,89 @@ def markazes(s, tehsil_id, token):
     return opts
 
 
+def _attendance_dict_rows(obj):
+    """Extract school attendance records from current or legacy SIS JSON."""
+    if isinstance(obj, list):
+        return [x for x in obj if isinstance(x, dict)]
+    if isinstance(obj, dict):
+        for key in ("data", "rows", "aaData", "results", "records"):
+            value = obj.get(key)
+            if isinstance(value, list):
+                return [x for x in value if isinstance(x, dict)]
+            if isinstance(value, dict):
+                found = _attendance_dict_rows(value)
+                if found:
+                    return found
+    return []
+
+
+def _pick(d, *keys):
+    for k in keys:
+        if k in d and d[k] not in (None, ""):
+            return d[k]
+    low = {str(k).lower(): v for k, v in d.items()}
+    for k in keys:
+        if k.lower() in low and low[k.lower()] not in (None, ""):
+            return low[k.lower()]
+    return None
+
+
 def student_attendance(s, district_id, tehsil_id, markaz_id, date_from):
-    html = request(s, "/dashboard/attendance_table", {
+    params = {
         "district_id": district_id,
         "tehsil_id": tehsil_id,
         "markaz_id": markaz_id,
         "date_from": date_from,
         "only_kpztp_districts": "false",
-    }, html=True)
+    }
 
-    # Proven Okara school-row structure:
-    # # | EMIS - School | Enrolled | Present | % | Absent | % | Not Marked | %
+    # Current SIS may return JSON/DataTables; older responses were HTML.
+    raw = request(s, "/dashboard/attendance_table", params)
     total = {"enrolled": 0, "present": 0, "absent": 0, "unmarked": 0, "schools": 0}
 
-    for cells in parse_rows(html):
+    # Legacy HTML response.
+    for cells in parse_rows(raw):
         if len(cells) < 9:
             continue
         m = re.search(r"(?<!\d)(\d{8})(?!\d)", cells[1])
         if not m:
             continue
-
         enrolled = int(num(cells[2]))
         present = int(num(cells[3]))
         absent = int(num(cells[5]))
         attendance_total = max(enrolled, present + absent)
-        unmarked = max(0, attendance_total - present - absent)
-
         total["enrolled"] += attendance_total
         total["present"] += present
         total["absent"] += absent
-        total["unmarked"] += unmarked
+        total["unmarked"] += max(0, attendance_total - present - absent)
         total["schools"] += 1
 
+    # Current JSON/DataTables response.
     if total["schools"] == 0:
+        for row in _attendance_dict_rows(raw):
+            emis = _pick(row, "emis", "emis_code", "emisCode", "school_emis_code", "s_id_emis_code")
+            if not re.search(r"\d{8}", str(emis or "")):
+                continue
+            enrolled = _pick(row, "enrolled", "enrollment", "total_students", "students", "student_total")
+            present = _pick(row, "present", "students_present", "present_count")
+            absent = _pick(row, "absent", "students_absent", "absent_count")
+            if enrolled is None and present is None and absent is None:
+                continue
+            enrolled = int(num(enrolled))
+            present = int(num(present))
+            absent = int(num(absent))
+            attendance_total = max(enrolled, present + absent)
+            total["enrolled"] += attendance_total
+            total["present"] += present
+            total["absent"] += absent
+            total["unmarked"] += max(0, attendance_total - present - absent)
+            total["schools"] += 1
+
+    if total["schools"] == 0:
+        preview = clean(str(raw))[:180]
         raise RuntimeError(
             f"No school attendance rows: district={district_id}, "
-            f"tehsil={tehsil_id}, markaz={markaz_id}"
+            f"tehsil={tehsil_id}, markaz={markaz_id}; response={preview}"
         )
     return total
 
