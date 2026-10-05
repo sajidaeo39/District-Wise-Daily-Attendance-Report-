@@ -48,6 +48,7 @@ tr.high td{background:#edf9f4}tr.low td{background:#fff0f0}.empty{padding:25px;c
 <input id="search" placeholder="Search district...">
 <select id="sort"><option value="district">District A–Z</option><option value="teacher_attendance_pct">Teacher Attendance</option><option value="student_attendance_pct">Student Attendance</option><option value="overall_attendance_pct">Overall Attendance</option></select>
 <button class="secondary" id="clearBtn">Reset Filters</button>
+<button id="refreshBtn">↻ Update Live Data</button>
 <button id="excelBtn">⬇ Download Excel</button>
 <button class="pdf" id="pdfBtn">⬇ Download PDF</button>
 </div>
@@ -115,6 +116,7 @@ function pdf(){
  }catch(e){console.error(e);alert('PDF generation failed: '+e.message)}
 }
 document.getElementById('search').oninput=render;document.getElementById('sort').onchange=render;document.getElementById('clearBtn').onclick=resetAll;document.getElementById('excelBtn').onclick=excel;document.getElementById('pdfBtn').onclick=pdf;
+document.getElementById('refreshBtn').onclick=()=>{const b=document.getElementById('refreshBtn');b.disabled=true;b.textContent='Updating…';load().finally(()=>{b.disabled=false;b.textContent='↻ Update Live Data'})};
 load();setInterval(load,300000);
 </script>
 </body></html>
