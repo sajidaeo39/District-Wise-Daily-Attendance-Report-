@@ -53,14 +53,64 @@ def district_options(s):
     blocks=re.findall(r"<select\\b([^>]*)>(.*?)</select>",html,re.I|re.S)
     candidates=[]
     for attrs,body in blocks:
-        if "district" in attrs.lower():
-            opts=parse_options(body)
-            if 20<=len(opts)<=60:candidates.append(opts)
-    if candidates:return max(candidates,key=len)
-    for _,body in blocks:
-        opts=parse_options(body); names={n.upper() for _,n in opts}
-        if "LAHORE" in names and "OKARA" in names and 20<=len(opts)<=60:return opts
-    raise RuntimeError("Could not isolate SIS district selector")
+        opts=parse_options(body)
+        if 20<=len(opts)<=60:
+            candidates.append(opts)
+    for opts in candidates:
+        names={n.upper() for _,n in opts}
+        if "LAHORE" in names and "OKARA" in names:
+            return opts
+
+    # SIS now renders the district selector dynamically. Discover the AJAX
+    # endpoint from the dashboard's JavaScript instead of assuming that the
+    # options are present in the initial HTML.
+    scripts=re.findall(r"<script[^>]+src=['\"]([^'\"]+)['\"]",html,re.I)
+    candidates_ep=[]
+    for src in scripts:
+        if src.startswith("//"): src="https:"+src
+        elif src.startswith("/"): src=BASE+src
+        elif not src.startswith("http"): src=BASE+"/"+src.lstrip("./")
+        try:
+            r=s.get(src,timeout=20,headers={"User-Agent":UA,"Referer":BASE+"/dashboard"})
+            if r.ok:
+                js=r.text
+                for ep in re.findall(r"""['\"]((?:/|https?://)[^'\"]*(?:district|District)[^'\"]*)['\"]""",js):
+                    if "district" in ep.lower() and ep not in candidates_ep:
+                        candidates_ep.append(ep)
+        except Exception:
+            pass
+
+    # Also test the conventional SIS endpoint names used by its dependent
+    # location selectors.
+    candidates_ep += [
+        "/user/get_districts","/user/get_district","/user/getDistricts",
+        "/user/get_district_list","/user/getDistrictList",
+        "/dashboard/get_districts","/dashboard/get_district",
+        "/dashboard/getDistricts",
+    ]
+    seen=set()
+    for ep in candidates_ep:
+        if ep in seen: continue
+        seen.add(ep)
+        if not ep.startswith("/"): continue
+        for params in (
+            {"selectedDistrict":"false","all":"All"},
+            {"all":"All"},
+            {},
+        ):
+            try:
+                raw=request(s,ep,params)
+                text=raw.get("html","") if isinstance(raw,dict) else str(raw)
+                opts=parse_options(text)
+                if 20<=len(opts)<=60:
+                    names={n.upper() for _,n in opts}
+                    if "LAHORE" in names and "OKARA" in names:
+                        print("District selector endpoint:",ep)
+                        return opts
+            except Exception:
+                continue
+
+    raise RuntimeError("Could not obtain SIS district list; selector is dynamically loaded and no district AJAX endpoint responded")
 
 def tehsils(s,district_id):
     data=request(s,"/user/get_tehsils",{"district":district_id,"selectedTehsil":"false","all":"All"})
