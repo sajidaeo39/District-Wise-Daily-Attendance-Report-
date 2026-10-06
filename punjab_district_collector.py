@@ -15,7 +15,7 @@ from urllib3.util.retry import Retry
 BASE = "https://sis.pesrp.edu.pk"
 OUT = Path("data/punjab_attendance.json")
 TIMEOUT = 30
-WORKERS = 6
+WORKERS = 12
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36"
 
 def clean(x): return re.sub(r"\s+", " ", str(x or "")).strip()
@@ -77,37 +77,84 @@ def csrf(s):
     return s.cookies.get("csrf_cookie_name","")
 
 def inventory(ds):
-    s=session(); prime(s); token=csrf(s)
-    schools=[]
-    for di,(did,dname) in enumerate(ds,1):
-        print(f"[{di}/{len(ds)}] Mapping {dname}...",flush=True)
+    # Mapping is the slowest part of SIS collection. District/tehsil discovery is
+    # kept bounded, while Markaz -> School calls run in parallel with independent
+    # sessions so one stale CSRF/session cannot block the whole inventory.
+    def district_map(item):
+        did,dname=item
+        s=session(); prime(s); token=csrf(s)
         ts=children(s,"/user/get_tehsils",{"district":did,"selectedTehsil":"false","all":"All","csrf_test_name":token})
-        if not ts: raise RuntimeError(f"No tehsils returned for {dname}")
+        if not ts:
+            raise RuntimeError(f"No tehsils returned for {dname}")
+        markaz_jobs=[]
         for tid,tname in ts:
             ms=children(s,"/user/get_markazes",{"tehsil":tid,"selectedMarkaz":"false","all":"All","csrf_test_name":token})
             if not ms:
-                print(f"WARNING: no markaz returned for {dname}/{tname}; skipping",flush=True); continue
+                print(f"WARNING: no markaz returned for {dname}/{tname}; skipping",flush=True)
+                continue
             for mid,mname in ms:
-                p={"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token}
-                ss=[]
-                for attempt in range(3):
-                    try: ss=children(s,"/user/get_schools",p)
-                    except Exception: ss=[]
-                    if ss: break
-                    time.sleep(1.5*(attempt+1)); prime(s); token=csrf(s); p["csrf_test_name"]=token
-                if not ss:
-                    print(f"WARNING: no schools returned for {dname}/{tname}/{mname} (markaz {mid})",flush=True); continue
-                for sid,sname in ss:
-                    m=re.search(r"(?<!\d)(\d{8})(?!\d)",sname)
-                    emis=m.group(1) if m else (sid if re.fullmatch(r"\d{8}",str(sid)) else "")
-                    if emis:
-                        schools.append({"district_id":str(did),"district":clean(dname),
-                                        "tehsil_id":str(tid),"tehsil":clean(tname),
-                                        "markaz_id":str(mid),"markaz":clean(mname),
-                                        "school_id":str(sid),"emis":emis,"school":clean(sname)})
-    # One EMIS = one canonical school.
+                markaz_jobs.append((did,dname,tid,tname,mid,mname))
+        return markaz_jobs
+
+    all_markazes=[]
+    with ThreadPoolExecutor(max_workers=8) as ex:
+        futures={ex.submit(district_map,d):d for d in ds}
+        for i,f in enumerate(as_completed(futures),1):
+            d=futures[f]
+            try:
+                jobs=f.result()
+                all_markazes.extend(jobs)
+                print(f"Mapping districts {i}/{len(ds)}: {d[1]} -> {len(jobs)} Markazs",flush=True)
+            except Exception as e:
+                raise RuntimeError(f"Mapping failed for district {d[1]}: {e}") from e
+
+    print(f"Discovered {len(all_markazes)} Markazs; fetching school lists in parallel...",flush=True)
+
+    def markaz_schools(job):
+        did,dname,tid,tname,mid,mname=job
+        s=session(); prime(s); token=csrf(s)
+        p={"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token}
+        ss=[]
+        last=None
+        for attempt in range(3):
+            try:
+                ss=children(s,"/user/get_schools",p)
+                if ss: break
+            except Exception as e:
+                last=e
+            time.sleep(0.8*(attempt+1))
+            prime(s); token=csrf(s); p["csrf_test_name"]=token
+        if not ss:
+            print(f"WARNING: no schools returned for {dname}/{tname}/{mname} (markaz {mid})",flush=True)
+            return []
+        out=[]
+        for sid,sname in ss:
+            m=re.search(r"(?<!\\d)(\\d{8})(?!\\d)",sname)
+            emis=m.group(1) if m else (sid if re.fullmatch(r"\\d{8}",str(sid)) else "")
+            if emis:
+                out.append({"district_id":str(did),"district":clean(dname),
+                            "tehsil_id":str(tid),"tehsil":clean(tname),
+                            "markaz_id":str(mid),"markaz":clean(mname),
+                            "school_id":str(sid),"emis":emis,"school":clean(sname)})
+        return out
+
+    schools=[]
+    completed=0
+    with ThreadPoolExecutor(max_workers=16) as ex:
+        futures={ex.submit(markaz_schools,j):j for j in all_markazes}
+        for f in as_completed(futures):
+            completed += 1
+            try:
+                schools.extend(f.result())
+            except Exception as e:
+                j=futures[f]
+                print(f"WARNING: Markaz {j[4]} school mapping failed: {e}",flush=True)
+            if completed % 100 == 0 or completed == len(all_markazes):
+                print(f"School mapping {completed}/{len(all_markazes)} Markazs",flush=True)
+
     uniq={}
-    for x in schools: uniq[x["emis"]]=x
+    for x in schools:
+        uniq[x["emis"]]=x
     return list(uniq.values())
 
 def attendance_worker():
