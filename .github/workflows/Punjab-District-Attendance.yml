@@ -1,8 +1,6 @@
 name: Punjab SIS Complete Attendance
 
 on:
-  push:
-    branches: [main]
   workflow_dispatch:
   schedule:
     - cron: "10 3,9,15,21 * * *"
@@ -15,12 +13,12 @@ permissions:
 
 concurrency:
   group: punjab-sis-attendance
-  cancel-in-progress: true
+  cancel-in-progress: false
 
 jobs:
   collect-and-deploy:
     runs-on: ubuntu-latest
-    timeout-minutes: 240
+    timeout-minutes: 360
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
