@@ -1,122 +1,44 @@
 <!doctype html>
-<html lang="en">
-<head>
-<meta charset="utf-8">
-<meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Punjab District Attendance Dashboard</title>
+<html lang="en"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Punjab SIS Complete Attendance Dashboard</title>
 <script src="https://cdn.jsdelivr.net/npm/xlsx@0.18.5/dist/xlsx.full.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf@2.5.2/dist/jspdf.umd.min.js"></script>
 <script src="https://cdn.jsdelivr.net/npm/jspdf-autotable@3.8.4/dist/jspdf.plugin.autotable.min.js"></script>
 <style>
-:root{--blue:#0b5ed7;--dark:#17345f;--line:#dfe5ee;--muted:#667085;--red:#c62828;--green:#16803c;--amber:#b26a00;--content:1500px;--gutter:clamp(18px,3vw,42px);--h:38px}
-*{box-sizing:border-box}html,body{margin:0;padding:0}body{background:#fff;font-family:Segoe UI,Arial,sans-serif;color:#172033}
-header{background:#fff;color:#17344d;padding:8px 0 9px;box-shadow:0 2px 10px rgba(23,52,77,.055);border-bottom:1px solid #e2eaf2}
-header .wrap{text-align:center}header h1{margin:0;font-size:23px;font-weight:750;color:#17344d}
-.dashboard-title{line-height:1.2;display:block;margin:0 auto;padding:8px 16px;border:0;border-radius:10px;background:#f4f8fc}
-header p{margin:4px 0 0;color:#52657a;font-size:11px}.byline{font-weight:600!important}
-.wrap{width:calc(100% - 2*var(--gutter));max-width:var(--content);margin:0 auto;padding:8px 0}
-.cards{display:grid;grid-template-columns:repeat(10,minmax(0,1fr));gap:9px;width:100%;margin:0 0 11px}
-.card{background:#fff;border:1px solid #dfe7ef;border-radius:10px;padding:8px 7px;box-shadow:0 2px 8px rgba(25,54,79,.055);min-width:0;height:68px;display:flex;flex-direction:column;align-items:center;justify-content:center;text-align:center}
-.card:nth-child(6n+1){background:#f2f7fb}.card:nth-child(6n+2){background:#f2f8f6}.card:nth-child(6n+3){background:#f1f8f4}.card:nth-child(6n+4){background:#fff5f2}.card:nth-child(6n+5){background:#fff9ee}.card:nth-child(6n){background:#f5f3fb}
-.label{font-size:9.5px;color:#5f7080;font-weight:650;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:100%}
-.num{font-size:18px;line-height:1.1;font-weight:750;margin-top:4px}.good{color:var(--green)}.bad{color:var(--red)}.amber{color:var(--amber)}
-.toolbar{display:grid;grid-template-columns:minmax(250px,1.8fr) repeat(5,minmax(110px,1fr));gap:7px;align-items:center;background:#fff;border:1px solid var(--line);padding:9px;border-radius:10px;margin:0 0 8px;box-shadow:0 2px 7px rgba(25,54,79,.04)}
-.toolbar input,.toolbar select,.toolbar button{height:var(--h);padding:0 10px;border:1px solid #cbd5e1;border-radius:7px;background:#fff;color:#172033;font:12px Segoe UI,Arial,sans-serif;min-width:0;width:100%}
-.toolbar button{border:0;background:#0f766e;color:#fff;font-weight:650;cursor:pointer}.toolbar .secondary{background:#475467}.toolbar .pdf{background:#b42318}
-.status{text-align:center;font-size:11px;color:var(--muted);margin:4px 0 7px}.warning{background:#fff4d6;border:1px solid #f2c66d;color:#704c00;padding:8px 11px;border-radius:9px;margin:7px 0;font-size:11px}
-.tablebox{background:#fff;border:1px solid var(--line);border-radius:10px;overflow:auto;max-height:68vh}
-table{border-collapse:collapse;width:100%;font-size:10px;table-layout:fixed}th,td{padding:9px 5px;white-space:normal;overflow-wrap:anywhere;line-height:1.3;border-bottom:1px solid var(--line);text-align:center;vertical-align:middle;font-variant-numeric:tabular-nums}
-th{position:sticky;top:0;background:#edf4fd;z-index:2;color:#17345f}th:first-child,td:first-child{text-align:left}td:first-child{font-weight:600}
-tr.high td{background:#edf9f4}tr.low td{background:#fff0f0}.empty{padding:25px;color:var(--muted)}.footer{text-align:center;padding:9px;color:#71808e;font-size:10px}
-@media(max-width:1100px){.cards{grid-template-columns:repeat(5,minmax(0,1fr));overflow-x:auto}.toolbar{grid-template-columns:repeat(4,minmax(0,1fr))}.toolbar input{grid-column:span 2}}
-@media(max-width:700px){html,body{width:100%;overflow-x:hidden}body{background:#f4f7fb}.wrap{padding:6px 7px}.dashboard-title{font-size:16px!important;padding:7px 8px;background:#eef5fb;border:1px solid #d9e6f2}
-.cards{grid-template-columns:repeat(5,minmax(0,1fr));gap:5px}.card{height:62px;padding:5px 2px}.label{font-size:7.2px;white-space:normal;height:18px;display:flex;align-items:center;justify-content:center}.num{font-size:13px}
-.toolbar{grid-template-columns:repeat(2,minmax(0,1fr));gap:5px;padding:7px}.toolbar input{grid-column:1/-1;height:40px}.toolbar select,.toolbar button{height:39px;font-size:10.5px;padding:0 4px}.toolbar #pdfBtn{grid-column:1/-1}
-.tablebox{max-height:60vh}table{width:max-content;min-width:100%;table-layout:auto;font-size:8.5px}th,td{min-width:70px;padding:7px 5px;font-size:8.5px}.footer{font-size:8.5px}}
-@media print{.toolbar,.status,.warning{display:none}.wrap{width:100%;padding:0}.tablebox{max-height:none;overflow:visible}.cards{grid-template-columns:repeat(5,1fr)}}
-</style>
-</head>
-<body>
-<header><div class="wrap">
-<h1 class="dashboard-title">Punjab District Wise Daily Attendance Dashboard</h1>
-<p class="byline">Teacher &amp; Student Attendance Monitoring — Punjab</p>
-<div class="status" id="status"></div>
-</div></header>
-<div class="wrap">
-<div id="cards" class="cards"></div>
-<div class="toolbar">
-<input id="search" placeholder="Search district...">
-<select id="sort"><option value="district">District A–Z</option><option value="teacher_attendance_pct">Teacher Attendance</option><option value="student_attendance_pct">Student Attendance</option><option value="overall_attendance_pct">Overall Attendance</option></select>
-<button class="secondary" id="clearBtn">Reset Filters</button>
-<button id="refreshBtn">↻ Update Live Data</button>
-<button id="excelBtn">⬇ Download Excel</button>
-<button class="pdf" id="pdfBtn">⬇ Download PDF</button>
-</div>
-<div id="warning" class="warning" style="display:none"></div>
-<div class="tablebox"><table><thead><tr>
-<th>District</th><th>Total Schools</th><th>Total Teachers</th><th>Teachers Present</th><th>Teachers Absent</th><th>Teachers Unmarked</th><th>Teacher %</th>
-<th>Total Students</th><th>Students Present</th><th>Students Absent</th><th>Students Unmarked</th><th>Student %</th><th>Overall %</th>
-</tr></thead><tbody id="body"></tbody></table></div>
-<div class="footer">Source: Punjab School Information System (SIS) • District-level aggregation only</div>
-</div>
+*{box-sizing:border-box}body{margin:0;background:#f5f7fa;color:#172033;font:13px Segoe UI,Arial,sans-serif}header{background:#17345f;color:#fff;padding:16px;text-align:center;box-shadow:0 2px 8px #0002}h1{margin:0;font-size:24px}.sub{margin-top:5px;font-size:11px;opacity:.85}.wrap{max-width:1600px;margin:auto;padding:12px}.cards{display:grid;grid-template-columns:repeat(8,1fr);gap:8px}.card{background:#fff;border:1px solid #dbe3ec;border-radius:9px;padding:9px;text-align:center;box-shadow:0 2px 6px #0000000d}.label{font-size:10px;color:#64748b}.num{font-size:19px;font-weight:750;margin-top:4px}.toolbar{display:grid;grid-template-columns:1.5fr repeat(6,1fr);gap:7px;margin:10px 0;background:#fff;padding:9px;border:1px solid #dbe3ec;border-radius:9px}.toolbar>*{height:38px;border:1px solid #cbd5e1;border-radius:6px;padding:0 9px;background:#fff}.toolbar button{background:#0f766e;color:white;border:0;font-weight:650;cursor:pointer}.toolbar .pdf{background:#b42318}.crumb{background:#eaf2fb;border:1px solid #cbdcf0;padding:8px 10px;border-radius:7px;margin-bottom:8px;color:#17345f}.notice{padding:8px;background:#fff4d6;border:1px solid #f0c36d;border-radius:7px;margin:8px 0;color:#704c00}.tablebox{background:#fff;border:1px solid #dbe3ec;border-radius:9px;overflow:auto;max-height:68vh}table{width:100%;border-collapse:collapse;min-width:900px}th,td{padding:8px 6px;border-bottom:1px solid #e5e7eb;text-align:center;font-size:11px}th{position:sticky;top:0;background:#eaf2fb;color:#17345f;z-index:2}td:first-child,th:first-child{text-align:left}.link{color:#0b5ed7;font-weight:650;cursor:pointer}.good{color:#16803c;font-weight:700}.bad{color:#c62828;font-weight:700}.muted{color:#667085}.footer{text-align:center;padding:12px;color:#667085;font-size:10px}@media(max-width:1000px){.cards{grid-template-columns:repeat(4,1fr)}.toolbar{grid-template-columns:repeat(3,1fr)}}@media(max-width:650px){h1{font-size:18px}.wrap{padding:7px}.cards{grid-template-columns:repeat(2,1fr)}.toolbar{grid-template-columns:1fr 1fr}.toolbar input{grid-column:1/-1}.tablebox{max-height:60vh}th,td{font-size:9px;padding:6px}}
+</style></head>
+<body><header><h1>Punjab SIS Complete Attendance Dashboard</h1><div class="sub">District → Tehsil → Markaz → School • Actual SIS attendance • No synthetic zeros</div></header>
+<div class="wrap"><div id="cards" class="cards"></div><div class="toolbar">
+<input id="search" placeholder="Search current level..."><select id="district"><option value="">All Districts</option></select><select id="tehsil"><option value="">All Tehsils</option></select><select id="markaz"><option value="">All Markazs</option></select><select id="level"><option value="district">District</option><option value="tehsil">Tehsil</option><option value="markaz">Markaz</option><option value="school">School</option></select>
+<button id="back">← Back</button><button id="refresh">↻ Update Live Data</button><button id="excel">⬇ Excel</button><button id="pdf" class="pdf">⬇ PDF</button></div>
+<div id="notice" class="notice" style="display:none"></div><div id="crumb" class="crumb">Punjab</div><div class="tablebox"><table><thead id="head"></thead><tbody id="body"></tbody></table></div><div class="footer">Source: Punjab School Information System (SIS) • Data is self-reported by schools in SIS. cite not used here</div></div>
 <script>
-let all=[],reportDate='';
-const DATA='data/punjab_district_attendance.json';
-const n=x=>Number(x||0).toLocaleString('en-US');
-const p=x=>Number(x||0).toFixed(1)+'%';
-const safe=s=>String(s||'All').replace(/[\\/:*?"<>|]+/g,'-').replace(/\s+/g,'_').replace(/_+/g,'_');
-const fmtDate=v=>{try{return new Intl.DateTimeFormat('en-US',{timeZone:'Asia/Karachi',month:'short',day:'2-digit',year:'numeric',hour:'numeric',minute:'2-digit',hour12:true}).format(new Date(v))}catch(e){return '—'}};
-const pct=(a,b)=>b?100*a/b:0;
-function filtered(){const q=document.getElementById('search').value.toLowerCase().trim();return all.filter(x=>String(x.district||'').toLowerCase().includes(q))}
-function sum(k,rows=all.filter(x=>x.status==='OK')){return rows.reduce((a,x)=>a+(Number(x[k])||0),0)}
-function renderCards(){
- const ok=all.filter(x=>x.status==='OK'),tt=sum('total_teachers',ok),tp=sum('teachers_present',ok),ta=sum('teachers_absent',ok),tu=sum('teachers_unmarked',ok),st=sum('total_students',ok),sp=sum('students_present',ok),sa=sum('students_absent',ok),su=sum('students_unmarked',ok);
- const cards=[['Districts',ok.length],['Total Schools',sum('total_schools',ok)],['Total Teachers',tt],['Teachers Present',tp],['Teachers Absent',ta],['Teacher %',p(pct(tp,tt))],['Total Students',st],['Students Present',sp],['Students Absent',sa],['Student %',p(pct(sp,st))]];
- document.getElementById('cards').innerHTML=cards.map(x=>'<div class="card"><div class="label">'+x[0]+'</div><div class="num">'+(typeof x[1]==='number'?n(x[1]):x[1])+'</div></div>').join('');
-}
+const DATA='data/punjab_attendance.json';let data=null,view='district',selected={d:'',t:'',m:''},rows=[];
+const n=x=>Number(x||0).toLocaleString('en-US'),p=x=>x==null?'—':Number(x||0).toFixed(1)+'%';
+function pct(a,b){return b?100*a/b:0}
+function summary(rs){let s={schools:rs.length,students:0,sp:0,sa:0,tp:0,ta:0,tm:0};rs.forEach(x=>{s.students+=+x.total_students||0;s.sp+=+x.students_present||0;s.sa+=+x.students_absent||0;if(x.teachers){s.tp+=+x.teachers.present||0;s.ta+=+x.teachers.absent||0;s.tm+=+x.teachers.marked||0}});s.su=Math.max(0,s.students-s.sp-s.sa);s.sr=pct(s.sp,s.students);s.tr=pct(s.tp,s.tp+s.ta);return s}
+function schoolRows(){let out=[];(data.districts||[]).forEach(d=>(d.tehsils||[]).forEach(t=>(t.markazs||[]).forEach(m=>(m.schools||[]).forEach(s=>out.push(s)))));return out}
+function currentSchools(){let out=schoolRows();if(selected.d)out=out.filter(x=>x.district===selected.d);if(selected.t)out=out.filter(x=>x.tehsil===selected.t);if(selected.m)out=out.filter(x=>x.markaz===selected.m);return out}
+function cards(rs){let s=summary(rs);let c=[['Schools',s.schools],['Students',s.students],['Present',s.sp],['Absent',s.sa],['Unmarked',s.su],['Student %',p(s.sr)],['Teacher Present',s.tp],['Teacher %',p(s.tr)]];document.getElementById('cards').innerHTML=c.map(x=>'<div class="card"><div class="label">'+x[0]+'</div><div class="num">'+(typeof x[1]==='number'?n(x[1]):x[1])+'</div></div>').join('')}
+function aggregateGroups(groups,nameKey,idKey){return groups.map(g=>{let rs=[];(g.tehsils||[]).forEach(t=>(t.markazs||[]).forEach(m=>(m.schools||[]).forEach(s=>rs.push(s))));let s=summary(rs);return {name:g[nameKey],id:g[idKey],...s}})}
+function getRows(){
+ let out=[];
+ if(view==='district') out=(data.districts||[]).map(d=>{let rs=[];(d.tehsils||[]).forEach(t=>(t.markazs||[]).forEach(m=>(m.schools||[]).forEach(s=>rs.push(s))));return {name:d.district,id:d.district_id,...summary(rs),type:'district'}});
+ if(view==='tehsil'){let d=(data.districts||[]).find(x=>x.district===selected.d);out=d?(d.tehsils||[]).map(t=>{let rs=[];(t.markazs||[]).forEach(m=>(m.schools||[]).forEach(s=>rs.push(s)));return {name:t.tehsil,id:t.tehsil_id,...summary(rs),type:'tehsil'}):[]}
+ if(view==='markaz'){let d=(data.districts||[]).find(x=>x.district===selected.d);let t=d&&(d.tehsils||[]).find(x=>x.tehsil===selected.t);out=t?(t.markazs||[]).map(m=>({name:m.markaz,id:m.markaz_id,...summary(m.schools||[]),type:'markaz'})):[]}
+ if(view==='school') out=currentSchools().map(s=>({name:s.school,id:s.emis,...s,type:'school'}));
+ let q=document.getElementById('search').value.toLowerCase().trim();return q?out.filter(x=>String(x.name||'').toLowerCase().includes(q)):out}
 function render(){
- const s=document.getElementById('sort').value;let rows=filtered();
- rows.sort((a,b)=>s==='district'?String(a.district).localeCompare(String(b.district)):(Number(b[s])||0)-(Number(a[s])||0));
- document.getElementById('body').innerHTML=rows.length?rows.map(x=>{
-   const tr=Number(x.teacher_attendance_pct)||0,sr=Number(x.student_attendance_pct)||0,m=Math.min(tr,sr);
-   return '<tr class="'+(m>=90?'high':m<70?'low':'')+'"><td>'+x.district+'</td><td>'+n(x.total_schools)+'</td><td>'+n(x.total_teachers)+'</td><td>'+n(x.teachers_present)+'</td><td>'+n(x.teachers_absent)+'</td><td>'+n(x.teachers_unmarked)+'</td><td class="'+(tr>=90?'good':tr<70?'bad':'amber')+'">'+p(tr)+'</td><td>'+n(x.total_students)+'</td><td>'+n(x.students_present)+'</td><td>'+n(x.students_absent)+'</td><td>'+n(x.students_unmarked)+'</td><td class="'+(sr>=90?'good':sr<70?'bad':'amber')+'">'+p(sr)+'</td><td class="'+((Number(x.overall_attendance_pct)||0)>=90?'good':(Number(x.overall_attendance_pct)||0)<70?'bad':'amber')+'">'+p(x.overall_attendance_pct)+'</td></tr>'
- }).join(''):'<tr><td colspan="13" class="empty">No district found.</td></tr>';
+ rows=getRows();let h=view==='school'?['School / EMIS','Students','Present','Absent','Unmarked','Student %','Teachers Present','Teachers Absent','Teacher %','Status']:['Name','Schools','Students','Present','Absent','Unmarked','Student %','Teachers Present','Teachers Absent','Teacher %'];
+ document.getElementById('head').innerHTML='<tr>'+h.map(x=>'<th>'+x+'</th>').join('')+'</tr>';
+ document.getElementById('body').innerHTML=rows.length?rows.map(x=>{let tr=x.tr,sr=x.sr;return '<tr><td class="link" data-name="'+String(x.name).replace(/"/g,'&quot;')+'">'+x.name+(view==='school'?'<br><span class="muted">'+x.id+'</span>':'')+'</td>'+ (view==='school'?'<td>'+n(x.total_students)+'</td><td>'+n(x.students_present)+'</td><td>'+n(x.students_absent)+'</td><td>'+n(x.students_unmarked)+'</td><td class="'+(sr>=90?'good':sr<70?'bad':'')+'">'+p(sr)+'</td><td>'+n(x.teachers?.present)+'</td><td>'+n(x.teachers?.absent)+'</td><td>'+p(x.teachers?(pct(x.teachers.present,x.teachers.present+x.teachers.absent)):null)+'</td><td>'+x.attendance_status+'</td>':'<td>'+n(x.schools)+'</td><td>'+n(x.students)+'</td><td>'+n(x.sp)+'</td><td>'+n(x.sa)+'</td><td>'+n(x.su)+'</td><td class="'+(sr>=90?'good':sr<70?'bad':'')+'">'+p(sr)+'</td><td>'+n(x.tp)+'</td><td>'+n(x.ta)+'</td><td class="'+(tr>=90?'good':tr<70?'bad':'')+'">'+p(tr)+'</td>')+'</tr>'}).join(''):'<tr><td colspan="10" class="muted">No data at this level.</td></tr>';
+ document.querySelectorAll('.link').forEach(el=>el.onclick=()=>drill(el.dataset.name));cards(currentSchools());crumb();
 }
-async function load(){
- try{
-  const r=await fetch(DATA+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);
-  const d=await r.json();all=Array.isArray(d.districts)?d.districts:[];reportDate=d.generated_at||'';
-  document.getElementById('status').textContent='Last collector update: '+fmtDate(d.generated_at)+' PKT • '+(d.complete_districts||0)+'/'+(d.district_count||0)+' districts ready';
-  const bad=all.filter(x=>x.status!=='OK').length,w=document.getElementById('warning');
-  if(bad){w.style.display='block';w.innerHTML='⚠️ <b>Incomplete district data:</b> '+bad+' district(s) are not complete. Failed districts are not converted to fake zero values.'}else w.style.display='none';
-  renderCards();render();
- }catch(e){document.getElementById('status').textContent='Live data not available yet: '+e.message}
-}
-function resetAll(){document.getElementById('search').value='';document.getElementById('sort').value='district';render()}
-function excel(){
- const rows=filtered(),h=['District','Total Schools','Total Teachers','Teachers Present','Teachers Absent','Teachers Unmarked','Teacher %','Total Students','Students Present','Students Absent','Students Unmarked','Student %','Overall %'];
- const data=rows.map(x=>[x.district,x.total_schools,x.total_teachers,x.teachers_present,x.teachers_absent,x.teachers_unmarked,x.teacher_attendance_pct,x.total_students,x.students_present,x.students_absent,x.students_unmarked,x.student_attendance_pct,x.overall_attendance_pct]);
- const ws=XLSX.utils.aoa_to_sheet([h,...data]);ws['!cols']=h.map(()=>({wch:15}));ws['!freeze']={xSplit:0,ySplit:1};
- const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'District Attendance');XLSX.writeFile(wb,'Punjab_District_Attendance_'+new Date().toISOString().slice(0,10)+'.xlsx');
-}
-function pdf(){
- try{
-  if(!window.jspdf||!window.jspdf.jsPDF)throw Error('PDF library is not loaded');
-  const {jsPDF}=window.jspdf,rows=filtered(),doc=new jsPDF({orientation:'landscape',unit:'pt',format:'a4'});
-  const head=[['District','Schools','Teachers','Present','Absent','Unmarked','Teacher %','Students','Present','Absent','Unmarked','Student %','Overall %']];
-  const body=rows.map(x=>[x.district,n(x.total_schools),n(x.total_teachers),n(x.teachers_present),n(x.teachers_absent),n(x.teachers_unmarked),p(x.teacher_attendance_pct),n(x.total_students),n(x.students_present),n(x.students_absent),n(x.students_unmarked),p(x.student_attendance_pct),p(x.overall_attendance_pct)]);
-  const ok=all.filter(x=>x.status==='OK'),W=842;
-  doc.setFont('helvetica','bold');doc.setFontSize(17);doc.setTextColor(23,52,95);doc.text('Punjab District Wise Daily Attendance',W/2,30,{align:'center'});
-  doc.setFont('helvetica','normal');doc.setFontSize(8);doc.setTextColor(92,105,122);doc.text('SIS District-Level Report • Updated: '+fmtDate(reportDate)+' PKT • Generated: '+fmtDate(new Date()),W/2,45,{align:'center'});
-  const tt=sum('total_teachers',ok),tp=sum('teachers_present',ok),st=sum('total_students',ok),sp=sum('students_present',ok);
-  doc.setFontSize(8);doc.text('Districts: '+ok.length+'   Teachers: '+n(tt)+'   Teacher %: '+p(pct(tp,tt))+'   Students: '+n(st)+'   Student %: '+p(pct(sp,st)),W/2,58,{align:'center'});
-  doc.autoTable({head,body,startY:70,theme:'grid',styles:{fontSize:6.5,cellPadding:3,halign:'center',valign:'middle'},headStyles:{fillColor:[25,63,95],textColor:255,fontStyle:'bold'},columnStyles:{0:{halign:'left',cellWidth:85}},didParseCell:d=>{if(d.section==='body'&&[6,11,12].includes(d.column.index)){const v=parseFloat(String(d.cell.raw));d.cell.styles.textColor=v>=90?[31,130,86]:v<70?[190,48,48]:[178,106,0];d.cell.styles.fontStyle='bold'}},margin:{left:22,right:22,top:70,bottom:25}});
-  const pages=doc.internal.getNumberOfPages();for(let i=1;i<=pages;i++){doc.setPage(i);doc.setFontSize(7);doc.setTextColor(100);doc.text('District-level aggregation only • Page '+i+' of '+pages,W/2,580,{align:'center'})}
-  doc.save('Punjab_District_Attendance_'+new Date().toISOString().slice(0,19).replace(/:/g,'-')+'.pdf');
- }catch(e){console.error(e);alert('PDF generation failed: '+e.message)}
-}
-document.getElementById('search').oninput=render;document.getElementById('sort').onchange=render;document.getElementById('clearBtn').onclick=resetAll;document.getElementById('excelBtn').onclick=excel;document.getElementById('pdfBtn').onclick=pdf;
-document.getElementById('refreshBtn').onclick=()=>{const b=document.getElementById('refreshBtn');b.disabled=true;b.textContent='Updating…';load().finally(()=>{b.disabled=false;b.textContent='↻ Update Live Data'})};
-load();setInterval(load,300000);
-</script>
-</body></html>
+function crumb(){let a=['Punjab'];if(selected.d)a.push(selected.d);if(selected.t)a.push(selected.t);if(selected.m)a.push(selected.m);if(view==='school')a.push('Schools');document.getElementById('crumb').textContent=a.join('  ›  ')}
+function drill(name){if(view==='district'){selected.d=name;view='tehsil';}else if(view==='tehsil'){selected.t=name;view='markaz';}else if(view==='markaz'){selected.m=name;view='school';}render();populate()}
+function populate(){let D=data.districts||[];let ds=document.getElementById('district');ds.innerHTML='<option value="">All Districts</option>'+D.map(d=>'<option>'+d.district+'</option>').join('');ds.value=selected.d||'';let d=D.find(x=>x.district===selected.d);let ts=d?.tehsils||[];let tsel=document.getElementById('tehsil');tsel.innerHTML='<option value="">All Tehsils</option>'+ts.map(t=>'<option>'+t.tehsil+'</option>').join('');tsel.value=selected.t||'';let t=ts.find(x=>x.tehsil===selected.t);let ms=t?.markazs||[];let msel=document.getElementById('markaz');msel.innerHTML='<option value="">All Markazs</option>'+ms.map(m=>'<option>'+m.markaz+'</option>').join('');msel.value=selected.m||''}
+async function load(){let r=await fetch(DATA+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('HTTP '+r.status);data=await r.json();let z=document.getElementById('notice');z.style.display=data.complete?'none':'block';z.textContent='⚠️ SIS data is incomplete: '+data.successful_schools+'/'+data.inventory_schools+' schools returned attendance. Failed requests are not converted to fake zeros.';if(data.complete)z.style.display='none';populate();render()}
+function excel(){let h=['Level','Name','Schools','Students','Present','Absent','Unmarked','Student %','Teacher Present','Teacher Absent','Teacher %'];let d=rows.map(x=>[view,x.name,x.schools||1,x.students||x.total_students,x.sp||x.students_present,x.sa||x.students_absent,x.su||x.students_unmarked,x.sr||x.student_attendance_pct,x.tp||x.teachers?.present||0,x.ta||x.teachers?.absent||0,x.tr||null]);let ws=XLSX.utils.aoa_to_sheet([h,...d]);let wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,ws,'Attendance');XLSX.writeFile(wb,'Punjab_SIS_Attendance_'+view+'_'+new Date().toISOString().slice(0,10)+'.xlsx')}
+function pdf(){const {jsPDF}=window.jspdf;let doc=new jsPDF({orientation:'landscape',unit:'pt',format:'a4'});doc.text('Punjab SIS Complete Attendance - '+view.toUpperCase(),420,30,{align:'center'});doc.autoTable({head:[['Name','Schools','Students','Present','Absent','Unmarked','Student %','Teacher Present','Teacher Absent','Teacher %']],body:rows.map(x=>[x.name,x.schools||1,n(x.students||x.total_students),n(x.sp||x.students_present),n(x.sa||x.students_absent),n(x.su||x.students_unmarked),p(x.sr||x.student_attendance_pct),n(x.tp||x.teachers?.present),n(x.ta||x.teachers?.absent),p(x.tr||x.teacher_attendance_pct)]),startY:50,styles:{fontSize:7}});doc.save('Punjab_SIS_Attendance_'+view+'.pdf')}
+document.getElementById('search').oninput=render;document.getElementById('district').onchange=e=>{selected.d=e.target.value;selected.t='';selected.m='';view=e.target.value?'tehsil':'district';populate();render()};document.getElementById('tehsil').onchange=e=>{selected.t=e.target.value;selected.m='';view=e.target.value?'markaz':'tehsil';populate();render()};document.getElementById('markaz').onchange=e=>{selected.m=e.target.value;view=e.target.value?'school':'markaz';render()};document.getElementById('level').onchange=e=>{view=e.target.value;render()};document.getElementById('back').onclick=()=>{if(view==='school'){selected.m='';view='markaz'}else if(view==='markaz'){selected.t='';view='tehsil'}else if(view==='tehsil'){selected.d='';view='district'}populate();render()};document.getElementById('refresh').onclick=()=>load().catch(e=>alert(e.message));document.getElementById('excel').onclick=excel;document.getElementById('pdf').onclick=pdf;load().catch(e=>document.getElementById('notice').textContent='Live data not available: '+e.message);
+</script></body></html>
