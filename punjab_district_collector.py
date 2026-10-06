@@ -99,7 +99,21 @@ def school_inventory(districts_list, token):
         if not ts: raise RuntimeError(f"No tehsils returned for {dname}")
         for tid,tname in ts:
             ms=children(s,"/user/get_markazes",{"tehsil":tid,"selectedMarkaz":"false","all":"All","csrf_test_name":token})
-            if not ms: raise RuntimeError(f"No markaz returned for {dname}/{tname}")
+            if not ms:
+                # SIS occasionally exposes a placeholder/NA tehsil with no
+                # markaz children. It contains no school inventory to collect.
+                # Retry once, then skip only this empty hierarchy node.
+                try:
+                    time.sleep(1.5)
+                    s.get(BASE + "/dashboard", timeout=TIMEOUT, headers={"Referer": BASE + "/"})
+                    s.get(BASE + "/str/analysis", timeout=TIMEOUT, headers={"Referer": BASE + "/dashboard"})
+                except Exception:
+                    pass
+                token = csrf(s) or token
+                ms=children(s,"/user/get_markazes",{"tehsil":tid,"selectedMarkaz":"false","all":"All","csrf_test_name":token})
+                if not ms:
+                    print(f"WARNING: no markaz returned for {dname}/{tname}; skipping empty SIS hierarchy node", flush=True)
+                    continue
             for mid,mname in ms:
                 school_params={"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token}
                 ss=children(s,"/user/get_schools",school_params)
