@@ -101,8 +101,24 @@ def school_inventory(districts_list, token):
             ms=children(s,"/user/get_markazes",{"tehsil":tid,"selectedMarkaz":"false","all":"All","csrf_test_name":token})
             if not ms: raise RuntimeError(f"No markaz returned for {dname}/{tname}")
             for mid,mname in ms:
-                ss=children(s,"/user/get_schools",{"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token})
-                if not ss: raise RuntimeError(f"No schools returned for {dname}/{tname}/{mname}")
+                school_params={"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token}
+                ss=children(s,"/user/get_schools",school_params)
+                if not ss:
+                    for attempt in range(1,4):
+                        time.sleep(attempt * 1.5)
+                        try:
+                            s.get(BASE + "/dashboard", timeout=TIMEOUT, headers={"Referer": BASE + "/"})
+                            s.get(BASE + "/str/analysis", timeout=TIMEOUT, headers={"Referer": BASE + "/dashboard"})
+                        except Exception:
+                            pass
+                        token = csrf(s) or token
+                        school_params["csrf_test_name"]=token
+                        ss=children(s,"/user/get_schools",school_params)
+                        if ss:
+                            break
+                    if not ss:
+                        print(f"WARNING: no schools returned for {dname}/{tname}/{mname} (markaz {mid})", flush=True)
+                        continue
                 for sid,sname in ss:
                     m=re.search(r"(?<!\d)(\d{8})(?!\d)",sname)
                     emis=m.group(1) if m else (sid if re.fullmatch(r"\d{8}",str(sid)) else "")
@@ -137,6 +153,8 @@ def collect():
     print(f"Found {len(ds)} districts",flush=True)
     schools=school_inventory(ds,token)
     print(f"Discovered {len(schools)} schools",flush=True)
+    if len(schools) < 1000:
+        raise RuntimeError(f"SIS school inventory incomplete: only {len(schools)} schools discovered")
     totals={d[0]:{"district_id":d[0],"district":d[1],"schools":0,"students":0,"present":0,"absent":0,"unmarked":0,"errors":[]} for d in ds}
     failed=[]
     def one(s):
