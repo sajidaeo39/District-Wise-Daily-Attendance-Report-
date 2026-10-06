@@ -36,7 +36,18 @@ def session():
 def get(s, path, params=None):
     r = s.get(BASE + path, params=params, timeout=TIMEOUT,
               headers={"Referer": BASE + "/dashboard",
-                       "X-Requested-With": "XMLHttpRequest"})
+                       "X-Requested-With": "XMLHttpRequest",
+                       "Accept": "application/json, text/javascript, */*;q=0.01"})
+    if r.status_code == 403:
+        try:
+            s.get(BASE + "/dashboard", timeout=TIMEOUT, headers={"Referer": BASE + "/"})
+            s.get(BASE + "/str/analysis", timeout=TIMEOUT, headers={"Referer": BASE + "/dashboard"})
+        except Exception:
+            pass
+        r = s.get(BASE + path, params=params, timeout=TIMEOUT,
+                  headers={"Referer": BASE + "/dashboard",
+                           "X-Requested-With": "XMLHttpRequest",
+                           "Accept": "application/json, text/javascript, */*;q=0.01"})
     r.raise_for_status()
     try: return r.json()
     except Exception: return r.text
@@ -72,16 +83,25 @@ def children(s, path, params):
     return options(get(s,path,params))
 
 def school_inventory(districts_list, token):
+    # Keep one SIS session for the complete hierarchy. The CSRF cookie/token
+    # pair is session-bound; mixing sessions causes HTTP 403 on get_schools.
+    s = session()
+    try:
+        s.get(BASE + "/dashboard", timeout=TIMEOUT, headers={"Referer": BASE + "/"})
+        s.get(BASE + "/str/analysis", timeout=TIMEOUT, headers={"Referer": BASE + "/dashboard"})
+    except Exception:
+        pass
+    token = csrf(s) or token
     schools=[]
     for di,(did,dname) in enumerate(districts_list,1):
         print(f"[{di}/{len(districts_list)}] Mapping {dname}...",flush=True)
-        ts=children(session(),"/user/get_tehsils",{"district":did,"selectedTehsil":"false","all":"All","csrf_test_name":token})
+        ts=children(s,"/user/get_tehsils",{"district":did,"selectedTehsil":"false","all":"All","csrf_test_name":token})
         if not ts: raise RuntimeError(f"No tehsils returned for {dname}")
         for tid,tname in ts:
-            ms=children(session(),"/user/get_markazes",{"tehsil":tid,"selectedMarkaz":"false","all":"All","csrf_test_name":token})
+            ms=children(s,"/user/get_markazes",{"tehsil":tid,"selectedMarkaz":"false","all":"All","csrf_test_name":token})
             if not ms: raise RuntimeError(f"No markaz returned for {dname}/{tname}")
             for mid,mname in ms:
-                ss=children(session(),"/user/get_schools",{"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token})
+                ss=children(s,"/user/get_schools",{"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token})
                 if not ss: raise RuntimeError(f"No schools returned for {dname}/{tname}/{mname}")
                 for sid,sname in ss:
                     m=re.search(r"(?<!\d)(\d{8})(?!\d)",sname)
