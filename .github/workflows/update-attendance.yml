@@ -1,6 +1,11 @@
 name: Update Punjab District Attendance
 
 on:
+  push:
+    branches: [main]
+    paths-ignore:
+      - "data/punjab_attendance.json"
+      - "README.md"
   workflow_dispatch:
   schedule:
     - cron: "17 2 * * *"
@@ -47,5 +52,5 @@ jobs:
         if: steps.collector.outcome == 'failure'
         run: |
           echo "SIS collection reported an error/incomplete collection."
-          echo "The generated real-data file was committed so the dashboard can show the latest successful records and failure counts."
+          echo "Real successful records and failure counts were preserved."
           exit 1
