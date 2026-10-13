@@ -96,7 +96,7 @@ def csrf(s):
         )
         r.raise_for_status()
         m = re.search(
-            r'name=["\\']csrf_test_name["\\'][^>]*value=["\\']([^"\\']+)',
+            r"""name=["']csrf_test_name["'][^>]*value=["']([^"']+)""",
             r.text, re.I
         )
         if m:
