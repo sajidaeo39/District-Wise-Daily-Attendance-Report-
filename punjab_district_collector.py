@@ -81,8 +81,29 @@ def options(raw):
 def children(s,path,params): return options(get(s,path,params))
 
 def csrf(s):
-    prime(s)
-    return s.cookies.get("csrf_cookie_name","")
+    # Match the working Okara live-attendance collector: SIS validates the
+    # form token embedded in /dashboard against the session CSRF cookie.
+    # Returning only the cookie value can make every dependent dropdown empty.
+    try:
+        r = s.get(
+            BASE + "/dashboard",
+            timeout=max(TIMEOUT, 30),
+            headers={
+                "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+                "Referer": BASE + "/",
+                "User-Agent": UA,
+            },
+        )
+        r.raise_for_status()
+        m = re.search(
+            r'name=["\\']csrf_test_name["\\'][^>]*value=["\\']([^"\\']+)',
+            r.text, re.I
+        )
+        if m:
+            return m.group(1)
+    except Exception as e:
+        print(f"WARNING: could not read SIS dashboard CSRF token: {e}", flush=True)
+    return s.cookies.get("csrf_cookie_name", "")
 
 def inventory(ds):
     # Mapping is the slowest part of SIS collection. District/tehsil discovery is
