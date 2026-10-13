@@ -60,7 +60,15 @@ def get(s,path,params=None):
     raise last or RuntimeError("SIS request failed")
 
 def options(raw):
-    if isinstance(raw,dict): raw=raw.get("html") or raw.get("data") or raw.get("options") or ""
+    # SIS endpoints may wrap their HTML in several JSON response layers.
+    for _ in range(4):
+        if not isinstance(raw, dict):
+            break
+        nxt = raw.get("html") or raw.get("data") or raw.get("options") or raw.get("response")
+        if nxt is None or nxt is raw:
+            raw = ""
+            break
+        raw = nxt
     out=[]
     for value,name in re.findall(r"<option[^>]*value\s*=\s*['\"]([^'\"]*)['\"][^>]*>\s*(.*?)\s*</option>",
                                  str(raw or ""),re.I|re.S):
@@ -129,8 +137,8 @@ def inventory(ds):
             return []
         out=[]
         for sid,sname in ss:
-            m=re.search(r"(?<!\\d)(\\d{8})(?!\\d)",sname)
-            emis=m.group(1) if m else (sid if re.fullmatch(r"\\d{8}",str(sid)) else "")
+            m=re.search(r"(?<!\d)(\d{8})(?!\d)",sname)
+            emis=m.group(1) if m else (sid if re.fullmatch(r"\d{8}",str(sid)) else "")
             if emis:
                 out.append({"district_id":str(did),"district":clean(dname),
                             "tehsil_id":str(tid),"tehsil":clean(tname),
