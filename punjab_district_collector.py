@@ -5,6 +5,7 @@ No synthetic attendance values are generated.
 """
 import json, re, time
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from threading import local
 from datetime import datetime, timezone
 from html import unescape
 from pathlib import Path
@@ -15,7 +16,8 @@ from urllib3.util.retry import Retry
 BASE = "https://sis.pesrp.edu.pk"
 OUT = Path("data/punjab_attendance.json")
 TIMEOUT = 30
-WORKERS = 12
+WORKERS = 20  # Higher attendance concurrency; per-thread SIS sessions avoid repeated setup
+THREAD_SESSIONS = local()
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36"
 
 def clean(x): return re.sub(r"\s+", " ", str(x or "")).strip()
@@ -141,7 +143,12 @@ def inventory(ds):
 
     def markaz_schools(job):
         did,dname,tid,tname,mid,mname=job
-        s=session(); prime(s); token=csrf(s)
+        # Reuse one SIS session per worker thread instead of opening and priming
+        # a fresh session for every Markaz; this cuts many redundant HTTP calls.
+        s=getattr(THREAD_SESSIONS, 'inventory_session', None)
+        if s is None:
+            s=session(); prime(s); THREAD_SESSIONS.inventory_session=s
+        token=csrf(s)
         p={"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token}
         ss=[]
         last=None
@@ -154,7 +161,7 @@ def inventory(ds):
             time.sleep(0.8*(attempt+1))
             prime(s); token=csrf(s); p["csrf_test_name"]=token
         if not ss:
-            print(f"WARNING: no schools returned for {dname}/{tname}/{mname} (markaz {mid})",flush=True)
+            print(f"SKIP ZERO-SCHOOL MARKAZ: {dname}/{tname}/{mname} (markaz {mid})",flush=True)
             return []
         out=[]
         for sid,sname in ss:
@@ -187,7 +194,11 @@ def inventory(ds):
     return list(uniq.values())
 
 def attendance_worker():
-    s=session(); prime(s)
+    # Keep a warm authenticated SIS session per worker thread. Previously every
+    # school created and primed a new session, adding two extra requests per school.
+    s=getattr(THREAD_SESSIONS, 'attendance_session', None)
+    if s is None:
+        s=session(); prime(s); THREAD_SESSIONS.attendance_session=s
     return s
 
 def school_attendance(s, sess):
