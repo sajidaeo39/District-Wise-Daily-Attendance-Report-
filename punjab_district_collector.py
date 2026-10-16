@@ -344,7 +344,18 @@ def save_snapshot(ds, schools, records, failed, complete=False):
     for d in districts_out:
         official=district_rows.get(d["district"])
         if official:
-            d["sis_summary"]={"students":official["students"],"teachers":official["teachers"],
+            teachers=dict(official["teachers"])
+            if not teachers.get("unmarked_reported"):
+                # If the district-level teacher endpoint omits unmarked count,
+                # use the SIS Filled staff counts already collected school-wise.
+                district_staff=[r for r in records if r["district"]==d["district"] and r.get("teachers")]
+                staff_total=sum((r.get("teachers") or {}).get("total",0) for r in district_staff)
+                if staff_total >= teachers["present"]+teachers["absent"]:
+                    teachers["total"]=staff_total
+                    teachers["unmarked"]=max(0,staff_total-teachers["present"]-teachers["absent"])
+                    teachers["progress_pct"]=round(100*teachers["present"]/staff_total,2) if staff_total else None
+                    teachers["total_source"]="SIS sanctioned posts Filled"
+            d["sis_summary"]={"students":official["students"],"teachers":teachers,
                               "verified_directly_from_sis":True}
         else:
             d["sis_summary"]={"students":None,"teachers":None,"verified_directly_from_sis":False}
