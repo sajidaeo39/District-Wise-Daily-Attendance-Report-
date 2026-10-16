@@ -283,8 +283,25 @@ def school_attendance(s, sess):
             "teachers":teacher,"attendance_status":"OK"}
 
 def save_snapshot(ds, schools, records, failed, complete=False):
-    """Publish a real-data checkpoint while long SIS collection is still running."""
+    """Publish SIS hierarchy with directly fetched district-level attendance as authority."""
     D={clean(name):{"district_id":str(did),"district":clean(name),"tehsils":{}} for did,name in ds}
+    # District aggregate endpoint is what SIS district summary displays. It is kept
+    # separate from the sum of school rows so incomplete school collection cannot
+    # silently alter the district's official totals.
+    district_rows={}
+    for did,dname in ds:
+        try:
+            s=getattr(THREAD_SESSIONS,"district_summary_session",None)
+            if s is None:
+                s=session(); prime(s); THREAD_SESSIONS.district_summary_session=s
+            token=csrf(s)
+            params={"district":str(did),"tehsil":"","markaz":"","school":"","s_id_emis_code":"",
+                    "ony_kpztp_districts":"false","csrf_test_name":token}
+            st=normalize_stats(get(s,"/attendance/get_today_attendance_stats",params))
+            tt=normalize_stats(get(s,"/attendance/get_teachers_today_attendance_stats",params))
+            district_rows[clean(dname)]={"students":st,"teachers":tt,"district_id":str(did)}
+        except Exception as e:
+            print(f"WARNING: direct SIS district summary unavailable for {dname}: {e}",flush=True)
     for r in records:
         d=D.setdefault(r["district"],{"district_id":r["district_id"],"district":r["district"],"tehsils":{}})
         t=d["tehsils"].setdefault(r["tehsil"],{"tehsil_id":r["tehsil_id"],"tehsil":clean(r["tehsil"]),"markazs":{}})
@@ -312,11 +329,19 @@ def save_snapshot(ds, schools, records, failed, complete=False):
         d["tehsils"]=sorted(d["tehsils"].values(),key=lambda x:x["tehsil"])
         d["summary"]=aggregate([r for t in d["tehsils"] for m in t["markazs"] for r in m["schools"]])
         districts_out.append(d)
+    for d in districts_out:
+        official=district_rows.get(d["district"])
+        if official:
+            d["sis_summary"]={"students":official["students"],"teachers":official["teachers"],
+                              "verified_directly_from_sis":True}
+        else:
+            d["sis_summary"]={"students":None,"teachers":None,"verified_directly_from_sis":False}
     payload={"generated_at":datetime.now(timezone.utc).isoformat(),"source":BASE,
              "attendance_date":datetime.now().astimezone().strftime("%d/%m/%Y"),
              "level":"district_tehsil_markaz_school","district_count":len(districts_out),
              "inventory_schools":len(schools),"successful_schools":len(records),
-             "failed_schools":len(failed),"complete":bool(complete and len(failed)==0),
+             "failed_schools":len(failed),"mapping_failures":MAPPING_FAILURES[:5000],
+             "complete":bool(complete and len(failed)==0 and not MAPPING_FAILURES),
              "collection_in_progress":not complete,
              "districts":sorted(districts_out,key=lambda x:x["district"]),
              "failed_school_requests":failed[:5000]}
