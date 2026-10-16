@@ -254,7 +254,8 @@ def normalize_stats(raw):
     if "unmarked_count" not in raw:
         unmarked=max(0,total-present-absent)
     return {"present":present,"absent":absent,"marked":marked,"unmarked":unmarked,
-            "total":total,"progress_pct":round(100*present/total,2) if total else None,
+            "total":total,"unmarked_reported":"unmarked_count" in raw,
+            "progress_pct":round(100*present/total,2) if total else None,
             "raw_present_pct":raw.get("present_percentage",raw.get("present_percent")),
             "raw_absent_pct":raw.get("absent_percentage",raw.get("absent_percent"))}
 
@@ -274,6 +275,18 @@ def school_attendance(s, sess):
     try:
         t=get(sess,"/attendance/get_teachers_today_attendance_stats",p)
         teacher=normalize_stats(t)
+        # If SIS omits an explicit unmarked_count, use the SIS Filled staff
+        # count to calculate the missing staff count rather than silently showing 0.
+        if not teacher["unmarked_reported"]:
+            try:
+                staff_total=filled_staff_total(s, sess)
+                if staff_total >= teacher["present"]+teacher["absent"]:
+                    teacher["total"]=staff_total
+                    teacher["unmarked"]=max(0,staff_total-teacher["present"]-teacher["absent"])
+                    teacher["progress_pct"]=round(100*teacher["present"]/staff_total,2) if staff_total else None
+                    teacher["total_source"]="SIS sanctioned posts Filled"
+            except Exception as staff_error:
+                print(f"WARNING: cannot verify unmarked staff total for {s.get('emis')}: {staff_error}",flush=True)
     except Exception as e:
         print(f"Teacher stats incomplete for {s.get('emis')}: {e}", flush=True)
     return {"total_students":student["total"],"enrolment_students":enrolment,
