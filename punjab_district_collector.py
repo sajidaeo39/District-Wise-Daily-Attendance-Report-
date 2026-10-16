@@ -20,6 +20,7 @@ WORKERS = 35  # Parallel SIS requests; keep below aggressive levels to avoid thr
 THREAD_SESSIONS = local()
 DISTRICT_SIS = {}
 MAPPING_FAILURES = []
+TEACHER_FAILURES = []
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36"
 
 def clean(x): return re.sub(r"\s+", " ", str(x or "")).strip()
@@ -288,6 +289,9 @@ def school_attendance(s, sess):
             except Exception as staff_error:
                 print(f"WARNING: cannot verify unmarked staff total for {s.get('emis')}: {staff_error}",flush=True)
     except Exception as e:
+        TEACHER_FAILURES.append({"emis":s.get("emis"),"district":s.get("district"),
+                                 "tehsil":s.get("tehsil"),"markaz":s.get("markaz"),
+                                 "school":s.get("school"),"error":str(e)})
         print(f"Teacher stats incomplete for {s.get('emis')}: {e}", flush=True)
     return {"total_students":student["total"],"enrolment_students":enrolment,
             "students_present":student["present"],"students_absent":student["absent"],
@@ -363,7 +367,8 @@ def save_snapshot(ds, schools, records, failed, complete=False):
              "attendance_date":datetime.now().astimezone().strftime("%d/%m/%Y"),
              "level":"district_tehsil_markaz_school","district_count":len(districts_out),
              "inventory_schools":len(schools),"successful_schools":len(records),
-             "failed_schools":len(failed),"mapping_failures":MAPPING_FAILURES[:5000],
+             "failed_schools":len(failed),"teacher_stats_missing":len(TEACHER_FAILURES),
+             "teacher_failures":TEACHER_FAILURES[:5000],"mapping_failures":MAPPING_FAILURES[:5000],
              "complete":bool(complete and len(failed)==0 and not MAPPING_FAILURES),
              "collection_in_progress":not complete,
              "districts":sorted(districts_out,key=lambda x:x["district"]),
