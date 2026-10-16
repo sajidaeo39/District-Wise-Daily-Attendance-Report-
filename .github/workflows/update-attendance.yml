@@ -1,15 +1,7 @@
 name: Update Punjab District Attendance
 
 on:
-  push:
-    branches: [main]
-    paths-ignore:
-      - "data/punjab_attendance.json"
-      - "README.md"
   workflow_dispatch:
-  schedule:
-    - cron: "17 2 * * *"
-      timezone: "Asia/Karachi"
 
 permissions:
   contents: write
@@ -30,9 +22,21 @@ jobs:
       - name: Install dependencies
         run: python -m pip install --upgrade pip requests
       - name: Collect live SIS attendance
+        timeout-minutes: 270
+        continue-on-error: true
         run: python -u punjab_district_collector.py
-      - name: Verify output exists before commit
-        run: test -s data/punjab_attendance.json
+      - name: Verify checkpoint or final data exists
+        run: |
+          python - <<'PY'
+          import json, os
+          path = 'data/punjab_attendance.json'
+          assert os.path.isfile(path) and os.path.getsize(path) > 10, 'No SIS checkpoint was written'
+          p = json.load(open(path, encoding='utf-8'))
+          assert p.get('level') == 'district_tehsil_markaz_school'
+          assert p.get('successful_schools', 0) > 0
+          assert isinstance(p.get('districts'), list) and len(p['districts']) >= 20
+          print('Valid SIS data:', p.get('successful_schools'), 'schools; districts:', p.get('district_count'))
+          PY
       - name: Commit latest real SIS data
         run: |
           git config user.name "github-actions[bot]"
