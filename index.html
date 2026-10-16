@@ -108,7 +108,7 @@ function render(){
  $('crumb').textContent=$('district').value?('Punjab · '+$('district').value):'Punjab · All Districts';
  const failed=Array.isArray(data.failed_school_requests)?data.failed_school_requests:[];
  const notice=$('notice');
- if(!data.complete||failed.length){notice.style.display='block';notice.textContent='Data status: '+num(data.successful_schools||0)+' of '+num(data.inventory_schools||0)+' school attendance records collected. '+num(failed.length)+' requests failed or were unavailable. Missing attendance is not fabricated as zero. Teacher totals are shown only where SIS sanctioned-post data was returned.'}
+ if(!data.complete||failed.length){notice.style.display='block';notice.textContent='Data status: '+num(data.successful_schools||0)+' of '+num(data.inventory_schools||0)+' school attendance records collected. '+num(failed.length)+' school attendance requests failed; '+num(data.teacher_stats_missing||0)+' teacher attendance records are missing; '+num((data.mapping_failures||[]).length)+' Markaz school-list requests failed. Missing attendance is not fabricated as zero. District totals are marked Verified only when fetched directly from SIS.'}
  else{notice.style.display='none';notice.textContent=''}
 }
 function populateFilters(){
