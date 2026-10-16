@@ -288,20 +288,19 @@ def save_snapshot(ds, schools, records, failed, complete=False):
     # District aggregate endpoint is what SIS district summary displays. It is kept
     # separate from the sum of school rows so incomplete school collection cannot
     # silently alter the district's official totals.
-    district_rows={}
-    for did,dname in ds:
-        try:
-            s=getattr(THREAD_SESSIONS,"district_summary_session",None)
-            if s is None:
-                s=session(); prime(s); THREAD_SESSIONS.district_summary_session=s
-            token=csrf(s)
-            params={"district":str(did),"tehsil":"","markaz":"","school":"","s_id_emis_code":"",
-                    "ony_kpztp_districts":"false","csrf_test_name":token}
-            st=normalize_stats(get(s,"/attendance/get_today_attendance_stats",params))
-            tt=normalize_stats(get(s,"/attendance/get_teachers_today_attendance_stats",params))
-            district_rows[clean(dname)]={"students":st,"teachers":tt,"district_id":str(did)}
-        except Exception as e:
-            print(f"WARNING: direct SIS district summary unavailable for {dname}: {e}",flush=True)
+    global DISTRICT_SIS
+    if not DISTRICT_SIS:
+        for did,dname in ds:
+            try:
+                s=session(); prime(s); token=csrf(s)
+                params={"district":str(did),"tehsil":"","markaz":"","school":"","s_id_emis_code":"",
+                        "ony_kpztp_districts":"false","csrf_test_name":token}
+                st=normalize_stats(get(s,"/attendance/get_today_attendance_stats",params))
+                tt=normalize_stats(get(s,"/attendance/get_teachers_today_attendance_stats",params))
+                DISTRICT_SIS[clean(dname)]={"students":st,"teachers":tt,"district_id":str(did)}
+            except Exception as e:
+                print(f"WARNING: direct SIS district summary unavailable for {dname}: {e}",flush=True)
+    district_rows=DISTRICT_SIS
     for r in records:
         d=D.setdefault(r["district"],{"district_id":r["district_id"],"district":r["district"],"tehsils":{}})
         t=d["tehsils"].setdefault(r["tehsil"],{"tehsil_id":r["tehsil_id"],"tehsil":clean(r["tehsil"]),"markazs":{}})
