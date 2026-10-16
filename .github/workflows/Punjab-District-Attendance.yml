@@ -20,7 +20,7 @@ permissions:
 
 concurrency:
   group: punjab-sis-attendance
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   collect-and-deploy:
