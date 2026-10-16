@@ -2,6 +2,13 @@ name: Punjab SIS Complete Attendance
 
 on:
   workflow_dispatch:
+  push:
+    branches: [main]
+    paths:
+      - "index.html"
+      - "punjab_district_collector.py"
+      - ".github/workflows/Punjab-District-Attendance.yml"
+      - "!data/punjab_attendance.json"
   schedule:
     - cron: "10 3,9,15,21 * * *"
       timezone: Asia/Karachi
