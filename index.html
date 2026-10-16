@@ -84,8 +84,8 @@ function renderCards(){
  $('cards').innerHTML=[
  ['Districts',selectedDistricts().length],['Schools',s.schools],['Total Students',s.students],
  ['Students Present',s.sp],['Students Absent',s.sa],['Students Unmarked',s.su],
- ['Student Attendance',fmtPct(pct(s.sp,s.students))],['Total Teachers',s.tt],
- ['Teachers Present',s.tp],['Teachers Absent',s.ta],['Teachers Unmarked',s.tu],
+ ['Student Attendance',fmtPct(pct(s.sp,s.students))],['Total Teachers',s.tt?num(s.tt):'Awaiting refresh'],
+ ['Teachers Present',s.tp],['Teachers Absent',s.ta],['Teachers Unmarked',s.tt?num(s.tu):'—'],
  ['Teacher Attendance',fmtPct(pct(s.tp,s.tt))]
  ].map(([a,b])=>'<div class="card"><div class="label">'+a+'</div><div class="num">'+(typeof b==='number'?num(b):b)+'</div></div>').join('');
 }
