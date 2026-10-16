@@ -26,7 +26,9 @@ jobs:
           python-version: '3.12'
       - name: Install dependencies
         run: python -m pip install --upgrade pip requests
-      - name: Collect complete SIS hierarchy
+      - name: Collect SIS attendance (save checkpoints)
+        timeout-minutes: 270
+        continue-on-error: true
         run: python -u punjab_district_collector.py
       - name: Validate complete hierarchy JSON
         run: |
