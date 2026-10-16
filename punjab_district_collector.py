@@ -201,6 +201,28 @@ def attendance_worker():
         s=session(); prime(s); THREAD_SESSIONS.attendance_session=s
     return s
 
+def filled_staff_total(s, sess):
+    """Read SIS sanctioned-posts table; use Filled staff as total working teachers."""
+    data = get(sess, "/dashboard/sanctioned_posts_tab", {
+        "district_id": str(s["district_id"]), "tehsil_id": str(s["tehsil_id"]),
+        "markaz_id": str(s["markaz_id"]), "school_id": str(s["school_id"]),
+        "s_id_emis_code": str(s["emis"]),
+    })
+    html = data.get("data") if isinstance(data, dict) else data
+    html = html or ""
+    if not isinstance(html, str):
+        html = str(html)
+    for tr in re.findall(r"<tr\b[^>]*>(.*?)</tr>", html, flags=re.I | re.S):
+        cells = [clean(unescape(re.sub(r"<[^>]+>", " ", cell)))
+                 for cell in re.findall(r"<t[dh]\b[^>]*>(.*?)</t[dh]>", tr, flags=re.I | re.S)]
+        joined = " ".join(cells).strip().lower()
+        if cells and (joined.startswith("total") or "overall" in joined):
+            nums = [to_int(cell) for cell in cells[1:] if re.search(r"\d", cell)]
+            if len(nums) >= 3:
+                return max(0, nums[1])  # Total, Filled, Vacant
+    raise RuntimeError("Filled staff total not found in sanctioned-posts response")
+
+
 def school_attendance(s, sess):
     p={"district":s["district_id"],"tehsil":s["tehsil_id"],"markaz":s["markaz_id"],
        "school":s["school_id"],"s_id_emis_code":s["emis"],"ony_kpztp_districts":"false"}
@@ -216,9 +238,12 @@ def school_attendance(s, sess):
     try:
         t=get(sess,"/attendance/get_teachers_today_attendance_stats",p)
         if isinstance(t,dict) and ("present_count" in t or "marked_count" in t):
-            tp=to_int(t.get("present_count")); ta=to_int(t.get("absent_count")); tm=to_int(t.get("marked_count"))
-            teacher={"present":tp,"absent":ta,"marked":tm}
-    except Exception:
+            tp=to_int(t.get("present_count")); ta=to_int(t.get("absent_count"))
+            staff_total=filled_staff_total(s, sess)
+            teacher={"present":tp,"absent":ta,"marked":tp+ta,"total":staff_total,
+                     "unmarked":max(0,staff_total-tp-ta)}
+    except Exception as e:
+        print(f"Teacher stats incomplete for {s.get('emis')}: {e}", flush=True)
         teacher=None
     return {"total_students":total,"students_present":present,"students_absent":absent,
             "students_unmarked":max(0,total-present-absent),
@@ -234,12 +259,15 @@ def save_snapshot(ds, schools, records, failed, complete=False):
         m["schools"].append(r)
     def aggregate(rows):
         ss=sum(r["total_students"] for r in rows); sp=sum(r["students_present"] for r in rows); sa=sum(r["students_absent"] for r in rows)
-        tp=sum((r["teachers"] or {}).get("present",0) for r in rows); ta=sum((r["teachers"] or {}).get("absent",0) for r in rows); tm=sum((r["teachers"] or {}).get("marked",0) for r in rows)
+        tp=sum((r["teachers"] or {}).get("present",0) for r in rows); ta=sum((r["teachers"] or {}).get("absent",0) for r in rows)
+        tm=sum((r["teachers"] or {}).get("marked",0) for r in rows)
+        tt=sum((r["teachers"] or {}).get("total",0) for r in rows)
+        tu=sum((r["teachers"] or {}).get("unmarked",max(0,(r["teachers"] or {}).get("total",0)-(r["teachers"] or {}).get("present",0)-(r["teachers"] or {}).get("absent",0))) for r in rows)
         return {"total_schools":len(rows),"total_students":ss,"students_present":sp,"students_absent":sa,
                 "students_unmarked":max(0,ss-sp-sa),
                 "student_attendance_pct":round(sp/ss*100,2) if ss else 0,
-                "teachers_present":tp,"teachers_absent":ta,"teachers_marked":tm,
-                "teacher_attendance_pct":round(tp/(tp+ta)*100,2) if tp+ta else None}
+                "teachers_total":tt,"teachers_present":tp,"teachers_absent":ta,"teachers_unmarked":tu,"teachers_marked":tm,
+                "teacher_attendance_pct":round(tp/tt*100,2) if tt else None}
     districts_out=[]
     for d in D.values():
         for t in d["tehsils"].values():
