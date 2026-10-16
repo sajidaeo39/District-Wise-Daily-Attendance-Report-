@@ -18,6 +18,8 @@ OUT = Path("data/punjab_attendance.json")
 TIMEOUT = 30
 WORKERS = 35  # Parallel SIS requests; keep below aggressive levels to avoid throttling
 THREAD_SESSIONS = local()
+DISTRICT_SIS = {}
+MAPPING_FAILURES = []
 UA = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Chrome/154 Safari/537.36"
 
 def clean(x): return re.sub(r"\s+", " ", str(x or "")).strip()
@@ -143,26 +145,42 @@ def inventory(ds):
 
     def markaz_schools(job):
         did,dname,tid,tname,mid,mname=job
-        # Reuse one SIS session per worker thread instead of opening and priming
-        # a fresh session for every Markaz; this cuts many redundant HTTP calls.
+        # A failed SIS request must never be mislabelled as a zero-school Markaz.
         s=getattr(THREAD_SESSIONS, 'inventory_session', None)
         if s is None:
             s=session(); prime(s); THREAD_SESSIONS.inventory_session=s
         token=csrf(s)
         p={"markaz":mid,"selectedSchool":"false","all":"All","csrf_test_name":token}
-        ss=[]
-        last=None
+        ss=[]; last=None; confirmed_empty=False
         for attempt in range(3):
             try:
-                ss=children(s,"/user/get_schools",p)
-                if ss: break
+                raw=get(s,"/user/get_schools",p)
+                ss=options(raw)
+                raw_text=""
+                if isinstance(raw,dict):
+                    raw_text=" ".join(str(raw.get(k,"")) for k in ("html","data","options","response"))
+                elif isinstance(raw,(str,list)):
+                    raw_text=str(raw)
+                if ss:
+                    break
+                if isinstance(raw,list) and not raw:
+                    confirmed_empty=True
+                    break
+                if re.search(r"<option\\b",raw_text,re.I):
+                    # SIS returned a valid dropdown containing only its placeholder.
+                    confirmed_empty=True
+                    break
+                last=RuntimeError("SIS returned no usable school options; cannot confirm zero-school Markaz")
             except Exception as e:
                 last=e
-            time.sleep(0.8*(attempt+1))
-            prime(s); token=csrf(s); p["csrf_test_name"]=token
+            if attempt<2:
+                time.sleep(0.8*(attempt+1))
+                prime(s); token=csrf(s); p["csrf_test_name"]=token
         if not ss:
-            print(f"SKIP ZERO-SCHOOL MARKAZ: {dname}/{tname}/{mname} (markaz {mid})",flush=True)
-            return []
+            if confirmed_empty:
+                print(f"SKIP CONFIRMED ZERO-SCHOOL MARKAZ: {dname}/{tname}/{mname} (markaz {mid})",flush=True)
+                return []
+            raise RuntimeError(f"School list unavailable for {dname}/{tname}/{mname} (Markaz {mid}): {last}")
         out=[]
         for sid,sname in ss:
             m=re.search(r"(?<!\d)(\d{8})(?!\d)",sname)
@@ -184,7 +202,8 @@ def inventory(ds):
                 schools.extend(f.result())
             except Exception as e:
                 j=futures[f]
-                print(f"WARNING: Markaz {j[4]} school mapping failed: {e}",flush=True)
+                MAPPING_FAILURES.append({"district":j[1],"tehsil":j[3],"markaz":j[5],"markaz_id":str(j[4]),"error":str(e)})
+                print(f"WARNING: Markaz {j[4]} school mapping failed (not treated as zero-school): {e}",flush=True)
             if completed % 100 == 0 or completed == len(all_markazes):
                 print(f"School mapping {completed}/{len(all_markazes)} Markazs",flush=True)
 
