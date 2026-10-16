@@ -223,30 +223,44 @@ def filled_staff_total(s, sess):
     raise RuntimeError("Filled staff total not found in sanctioned-posts response")
 
 
+def normalize_stats(raw):
+    """Preserve SIS present/absent/unmarked counts instead of inferring unmarked."""
+    if not isinstance(raw, dict) or not any(k in raw for k in ("present_count","marked_count","unmarked_count")):
+        raise RuntimeError("unexpected SIS attendance stats response")
+    present=to_int(raw.get("present_count"))
+    absent=to_int(raw.get("absent_count"))
+    marked=to_int(raw.get("marked_count", present+absent))
+    unmarked=to_int(raw.get("unmarked_count")) if "unmarked_count" in raw else 0
+    total=present+absent+unmarked if "unmarked_count" in raw else max(marked,present+absent)
+    if "unmarked_count" not in raw:
+        unmarked=max(0,total-present-absent)
+    return {"present":present,"absent":absent,"marked":marked,"unmarked":unmarked,
+            "total":total,"progress_pct":round(100*present/total,2) if total else None,
+            "raw_present_pct":raw.get("present_percentage",raw.get("present_percent")),
+            "raw_absent_pct":raw.get("absent_percentage",raw.get("absent_percent"))}
+
 def school_attendance(s, sess):
     p={"district":s["district_id"],"tehsil":s["tehsil_id"],"markaz":s["markaz_id"],
        "school":s["school_id"],"s_id_emis_code":s["emis"],"ony_kpztp_districts":"false"}
     a=get(sess,"/attendance/get_today_attendance_stats",p)
-    if not isinstance(a,dict) or not ("present_count" in a or "marked_count" in a):
-        raise RuntimeError("unexpected student attendance response")
-    present=to_int(a.get("present_count")); absent=to_int(a.get("absent_count")); marked=to_int(a.get("marked_count"))
-    e=get(sess,"/dashboard_revamp/get_gender_summary_pie",p)
-    total=to_int(e.get("total")) if isinstance(e,dict) else 0
-    if total<=0: total=max(marked,present+absent)
-    if present+absent>total: raise RuntimeError("attendance exceeds enrolled total")
+    student=normalize_stats(a)
+    # Keep SIS's unmarked count. The gender/enrolment endpoint is retained only
+    # as a cross-check, never as a replacement for attendance endpoint counts.
+    try:
+        e=get(sess,"/dashboard_revamp/get_gender_summary_pie",p)
+        enrolment=to_int(e.get("total")) if isinstance(e,dict) else 0
+    except Exception:
+        enrolment=0
     teacher=None
     try:
         t=get(sess,"/attendance/get_teachers_today_attendance_stats",p)
-        if isinstance(t,dict) and ("present_count" in t or "marked_count" in t):
-            tp=to_int(t.get("present_count")); ta=to_int(t.get("absent_count"))
-            staff_total=filled_staff_total(s, sess)
-            teacher={"present":tp,"absent":ta,"marked":tp+ta,"total":staff_total,
-                     "unmarked":max(0,staff_total-tp-ta)}
+        teacher=normalize_stats(t)
     except Exception as e:
         print(f"Teacher stats incomplete for {s.get('emis')}: {e}", flush=True)
-        teacher=None
-    return {"total_students":total,"students_present":present,"students_absent":absent,
-            "students_unmarked":max(0,total-present-absent),
+    return {"total_students":student["total"],"enrolment_students":enrolment,
+            "students_present":student["present"],"students_absent":student["absent"],
+            "students_marked":student["marked"],"students_unmarked":student["unmarked"],
+            "student_progress_pct":student["progress_pct"],
             "teachers":teacher,"attendance_status":"OK"}
 
 def save_snapshot(ds, schools, records, failed, complete=False):
