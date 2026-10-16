@@ -369,7 +369,7 @@ def save_snapshot(ds, schools, records, failed, complete=False):
              "inventory_schools":len(schools),"successful_schools":len(records),
              "failed_schools":len(failed),"teacher_stats_missing":len(TEACHER_FAILURES),
              "teacher_failures":TEACHER_FAILURES[:5000],"mapping_failures":MAPPING_FAILURES[:5000],
-             "complete":bool(complete and len(failed)==0 and not MAPPING_FAILURES),
+             "complete":bool(complete and len(failed)==0 and not MAPPING_FAILURES and not TEACHER_FAILURES),
              "collection_in_progress":not complete,
              "districts":sorted(districts_out,key=lambda x:x["district"]),
              "failed_school_requests":failed[:5000]}
