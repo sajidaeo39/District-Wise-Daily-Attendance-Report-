@@ -224,6 +224,47 @@ def school_attendance(s, sess):
             "students_unmarked":max(0,total-present-absent),
             "teachers":teacher,"attendance_status":"OK"}
 
+def save_snapshot(ds, schools, records, failed, complete=False):
+    """Publish a real-data checkpoint while long SIS collection is still running."""
+    D={clean(name):{"district_id":str(did),"district":clean(name),"tehsils":{}} for did,name in ds}
+    for r in records:
+        d=D.setdefault(r["district"],{"district_id":r["district_id"],"district":r["district"],"tehsils":{}})
+        t=d["tehsils"].setdefault(r["tehsil"],{"tehsil_id":r["tehsil_id"],"tehsil":clean(r["tehsil"]),"markazs":{}})
+        m=t["markazs"].setdefault(r["markaz"],{"markaz_id":r["markaz_id"],"markaz":clean(r["markaz"]),"schools":[]})
+        m["schools"].append(r)
+    def aggregate(rows):
+        ss=sum(r["total_students"] for r in rows); sp=sum(r["students_present"] for r in rows); sa=sum(r["students_absent"] for r in rows)
+        tp=sum((r["teachers"] or {}).get("present",0) for r in rows); ta=sum((r["teachers"] or {}).get("absent",0) for r in rows); tm=sum((r["teachers"] or {}).get("marked",0) for r in rows)
+        return {"total_schools":len(rows),"total_students":ss,"students_present":sp,"students_absent":sa,
+                "students_unmarked":max(0,ss-sp-sa),
+                "student_attendance_pct":round(sp/ss*100,2) if ss else 0,
+                "teachers_present":tp,"teachers_absent":ta,"teachers_marked":tm,
+                "teacher_attendance_pct":round(tp/(tp+ta)*100,2) if tp+ta else None}
+    districts_out=[]
+    for d in D.values():
+        for t in d["tehsils"].values():
+            mrs=[]
+            for m in t["markazs"].values():
+                m["summary"]=aggregate(m["schools"]); mrs.append(m)
+            t["markazs"]=sorted(mrs,key=lambda x:x["markaz"])
+            t["summary"]=aggregate([r for m in mrs for r in m["schools"]])
+        d["tehsils"]=sorted(d["tehsils"].values(),key=lambda x:x["tehsil"])
+        d["summary"]=aggregate([r for t in d["tehsils"] for m in t["markazs"] for r in m["schools"]])
+        districts_out.append(d)
+    payload={"generated_at":datetime.now(timezone.utc).isoformat(),"source":BASE,
+             "attendance_date":datetime.now().astimezone().strftime("%d/%m/%Y"),
+             "level":"district_tehsil_markaz_school","district_count":len(districts_out),
+             "inventory_schools":len(schools),"successful_schools":len(records),
+             "failed_schools":len(failed),"complete":bool(complete and len(failed)==0),
+             "collection_in_progress":not complete,
+             "districts":sorted(districts_out,key=lambda x:x["district"]),
+             "failed_school_requests":failed[:5000]}
+    OUT.parent.mkdir(parents=True,exist_ok=True)
+    temp=OUT.with_suffix(".json.tmp")
+    temp.write_text(json.dumps(payload,ensure_ascii=False,separators=(",",":")),encoding="utf-8")
+    temp.replace(OUT)
+    print(f"Saved {'final' if complete else 'checkpoint'} JSON: {len(records)}/{len(schools)} schools; {len(districts_out)} districts",flush=True)
+
 def collect():
     root=session(); ds=options(get(root,"/user/get_districts"))
     if len(ds)<20: raise RuntimeError("Punjab district list incomplete")
@@ -252,50 +293,13 @@ def collect():
             except Exception as e:
                 failed.append({"emis":s["emis"],"district":s["district"],"tehsil":s["tehsil"],
                                "markaz":s["markaz"],"school":s["school"],"error":str(e)})
-            if i%250==0: print(f"Attendance {i}/{len(schools)}",flush=True)
+            if i%250==0:
+                print(f"Attendance {i}/{len(schools)}",flush=True)
+                save_snapshot(ds, schools, records, failed, complete=False)
     print(f"Successful attendance: {len(records)}/{len(schools)}",flush=True)
     print(f"Failed attendance: {len(failed)}",flush=True)
     if len(records)==0: raise RuntimeError("No SIS attendance was collected")
-    # Build hierarchy from successful actual SIS records.
-    # Keep every SIS district in the published hierarchy, even when a district's
-    # school requests all fail; the dashboard must never silently hide a district.
-    D={clean(name):{"district_id":str(did),"district":clean(name),"tehsils":{}} for did,name in ds}
-    for r in records:
-        d=D.setdefault(r["district"],{"district_id":r["district_id"],"district":r["district"],"tehsils":{}})
-        t=d["tehsils"].setdefault(r["tehsil"],{"tehsil_id":r["tehsil_id"],"tehsil":r["tehsil"],"markazs":{}})
-        m=t["markazs"].setdefault(r["markaz"],{"markaz_id":r["markaz_id"],"markaz":r["markaz"],"schools":[]})
-        m["schools"].append(r)
-    def aggregate(rows):
-        ss=sum(r["total_students"] for r in rows); sp=sum(r["students_present"] for r in rows); sa=sum(r["students_absent"] for r in rows)
-        tp=sum((r["teachers"] or {}).get("present",0) for r in rows); ta=sum((r["teachers"] or {}).get("absent",0) for r in rows); tm=sum((r["teachers"] or {}).get("marked",0) for r in rows)
-        # Teacher total is marked + unmarked only when marked data exists; otherwise remains unavailable.
-        return {"total_schools":len(rows),"total_students":ss,"students_present":sp,"students_absent":sa,
-                "students_unmarked":max(0,ss-sp-sa),
-                "student_attendance_pct":round(sp/ss*100,2) if ss else 0,
-                "teachers_present":tp,"teachers_absent":ta,"teachers_marked":tm,
-                "teacher_attendance_pct":round(tp/(tp+ta)*100,2) if tp+ta else None}
-    districts_out=[]
-    for d in D.values():
-        trs=[]
-        for t in d["tehsils"].values():
-            mrs=[]
-            for m in t["markazs"].values():
-                m["summary"]=aggregate(m["schools"]); mrs.append(m)
-            t["markazs"]=sorted(mrs,key=lambda x:x["markaz"]); trs.extend(t["markazs"])
-            t["summary"]=aggregate([r for m in mrs for r in m["schools"]])
-        d["tehsils"]=sorted(d["tehsils"].values(),key=lambda x:x["tehsil"])
-        d["summary"]=aggregate([r for t in d["tehsils"] for m in t["markazs"] for r in m["schools"]])
-        districts_out.append(d)
-    payload={"generated_at":datetime.now(timezone.utc).isoformat(),
-             "source":BASE,"attendance_date":datetime.now().astimezone().strftime("%d/%m/%Y"),
-             "level":"district_tehsil_markaz_school","district_count":len(districts_out),
-             "inventory_schools":len(schools),"successful_schools":len(records),
-             "failed_schools":len(failed),"complete":len(failed)==0,
-             "districts":sorted(districts_out,key=lambda x:x["district"]),
-             "failed_school_requests":failed[:5000]}
-    OUT.parent.mkdir(parents=True,exist_ok=True)
-    OUT.write_text(json.dumps(payload,ensure_ascii=False,separators=(",",":")),encoding="utf-8")
-    if len(districts_out)<40: raise RuntimeError(f"Only {len(districts_out)} districts have SIS attendance")
+    save_snapshot(ds, schools, records, failed, complete=True)
     # Do not publish fake/zero records. A run may publish real partial data, but is flagged incomplete.
     # Publish real partial data even when SIS temporarily fails for some schools.
     # Failed schools are explicitly listed in failed_school_requests and are never
