@@ -2,6 +2,13 @@ name: Update Punjab District Attendance
 
 on:
   workflow_dispatch:
+  schedule:
+    - cron: "0 21 * * *" # Daily at 02:00 Pakistan Standard Time
+  push:
+    branches: [main]
+    paths:
+      - ".github/workflows/update-attendance.yml"
+      - "punjab_district_collector.py"
 
 permissions:
   contents: write
