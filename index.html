@@ -14,7 +14,7 @@ header{background:#fff;border-bottom:1px solid #e1e8f0;padding:12px 18px 10px;bo
 h1{margin:0;color:var(--navy);font-size:24px;font-weight:750}.subtitle{color:#607287;font-size:11px;margin-top:5px}.credit{font-size:10px;color:#667085;margin-top:4px}
 .wrap{padding:12px 16px 22px}.meta{display:flex;align-items:center;justify-content:space-between;gap:8px;flex-wrap:wrap;color:#64748b;font-size:11px;margin:0 0 10px}
 .pill{background:#fff;border:1px solid var(--line);border-radius:20px;padding:6px 10px}
-.cards{display:grid;grid-template-columns:repeat(8,minmax(0,1fr));gap:8px;margin-bottom:10px}
+.cards{display:grid;grid-template-columns:repeat(6,minmax(0,1fr));gap:8px;margin-bottom:10px}
 .card{background:#fff;border:1px solid var(--line);border-radius:10px;min-width:0;padding:10px 7px;text-align:center;box-shadow:0 2px 7px #19364f08}
 .label{font-size:10px;color:#64748b;font-weight:650}.num{font-size:20px;font-weight:750;margin-top:5px;color:var(--navy);overflow-wrap:anywhere}
 .card:nth-child(2n){background:#f8fbff}.tabs{display:flex;gap:7px;flex-wrap:wrap;margin:0 0 10px}
@@ -37,16 +37,14 @@ tbody tr:hover td{background:#f7fbff}.name-link{color:#0b5ed7;font-weight:700;cu
 </style>
 </head>
 <body>
-<header><div class="head-inner"><div class="titlebox"><h1>SED Punjab 2026 Daily Attendance Dashboard</h1><div class="subtitle">District → Tehsil → Markaz → School Wise Report · Live SIS attendance</div><div class="credit">Developed for education monitoring · Data source: Punjab School Information System (SIS)</div></div></div></header>
+<header><div class="head-inner"><div class="titlebox"><h1>SED Punjab 2026 Daily Attendance Dashboard</h1><div class="subtitle">Punjab district-level report · Live SIS attendance</div><div class="credit">Developed for education monitoring · Data source: Punjab School Information System (SIS)</div></div></div></header>
 <main class="wrap">
 <div class="meta"><span class="pill" id="reportDate">Latest Report: loading…</span><span class="pill" id="dataStatus">Connecting to live data…</span></div>
 <section id="cards" class="cards"></section>
-<nav class="tabs" aria-label="Report level"><button class="tab active" data-view="district">District Wise</button><button class="tab" data-view="tehsil">Tehsil Wise</button><button class="tab" data-view="markaz">Markaz Wise</button><button class="tab" data-view="school">School Wise</button></nav>
+<div class="crumb" style="margin-bottom:9px">District-level report only · Punjab-wide totals · No school-wise rows displayed</div>
 <section class="toolbar">
-<input id="search" placeholder="Search district, tehsil, markaz or school…">
-<select id="district"><option value="">All Districts</option></select>
-<select id="tehsil"><option value="">All Tehsils</option></select>
-<select id="markaz"><option value="">All Markazs</option></select>
+<input id="search" placeholder="Search district…">
+<select id="district"><option value="">All Punjab Districts</option></select>
 <button class="action secondary" id="clear">Clear Filters</button><button class="action" id="refresh">↻ Update Live</button><button class="action" id="excel">↓ Excel</button><button class="action pdf" id="pdf">↓ PDF</button>
 </section>
 <div id="notice" class="notice"></div><div id="crumb" class="crumb">Punjab · All Districts</div>
@@ -56,35 +54,98 @@ tbody tr:hover td{background:#f7fbff}.name-link{color:#0b5ed7;font-weight:700;cu
 </main>
 <script>
 const DATA='data/punjab_attendance.json';
-let data=null,view='district',selected={d:'',t:'',m:''},rows=[];
+let data=null,rows=[];
 const $=id=>document.getElementById(id);
 const esc=x=>String(x??'').replace(/[&<>"']/g,c=>({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
 const num=x=>Number(x||0).toLocaleString('en-US');
 const pct=(a,b)=>b?100*Number(a||0)/Number(b||0):null;
 const fmtPct=x=>x==null||!Number.isFinite(Number(x))?'—':Number(x).toFixed(1)+'%';
-function allSchools(){const out=[];(data?.districts||[]).forEach(d=>(d.tehsils||[]).forEach(t=>(t.markazs||[]).forEach(m=>(m.schools||[]).forEach(s=>out.push(s)))));return out}
-function filteredSchools(){let a=allSchools();if(selected.d)a=a.filter(s=>s.district===selected.d);if(selected.t)a=a.filter(s=>s.tehsil===selected.t);if(selected.m)a=a.filter(s=>s.markaz===selected.m);const q=$('search').value.trim().toLowerCase();if(q)a=a.filter(s=>[s.school,s.emis,s.district,s.tehsil,s.markaz].some(v=>String(v||'').toLowerCase().includes(q)));return a}
-function summary(a){const s={schools:a.length,students:0,sp:0,sa:0,su:0,tp:0,ta:0,tm:0,teacherCount:0};a.forEach(x=>{s.students+=Number(x.total_students)||0;s.sp+=Number(x.students_present)||0;s.sa+=Number(x.students_absent)||0;s.su+=Number(x.students_unmarked??Math.max(0,(+x.total_students||0)-(+x.students_present||0)-(+x.students_absent||0)))||0;if(x.teachers){s.tp+=Number(x.teachers.present)||0;s.ta+=Number(x.teachers.absent)||0;s.tm+=Number(x.teachers.marked)||0;s.teacherCount++}});s.sr=pct(s.sp,s.students);s.tr=pct(s.tp,s.tp+s.ta);return s}
-function renderCards(){const s=summary(filteredSchools());const cards=[['Schools',num(s.schools)],['Enrolled Students',num(s.students)],['Students Present',num(s.sp)],['Students Absent',num(s.sa)],['Students Unmarked',num(s.su)],['Student Attendance',fmtPct(s.sr)],['Teachers Present',num(s.tp)],['Teacher Attendance',fmtPct(s.tr)]];$('cards').innerHTML=cards.map(([a,b])=>'<div class="card"><div class="label">'+a+'</div><div class="num">'+b+'</div></div>').join('')}
-function flattenDistrict(d){return (d.tehsils||[]).flatMap(t=>(t.markazs||[]).flatMap(m=>m.schools||[]))}
-function groupsForLevel(){const D=data?.districts||[];let out=[];if(view==='district'){out=(selected.d?D.filter(d=>d.district===selected.d):D).map(d=>({name:d.district,id:d.district_id,kind:'district',s:summary(flattenDistrict(d)),district:d.district}))}
-else if(view==='tehsil'){const dd=selected.d?D.filter(d=>d.district===selected.d):D;out=dd.flatMap(d=>(d.tehsils||[]).filter(t=>!selected.t||t.tehsil===selected.t).map(t=>({name:t.tehsil,id:t.tehsil_id,kind:'tehsil',district:d.district,tehsil:t.tehsil,s:summary((t.markazs||[]).flatMap(m=>m.schools||[]))})))}
-else if(view==='markaz'){const dd=selected.d?D.filter(d=>d.district===selected.d):D;out=dd.flatMap(d=>(d.tehsils||[]).filter(t=>!selected.t||t.tehsil===selected.t).flatMap(t=>(t.markazs||[]).filter(m=>!selected.m||m.markaz===selected.m).map(m=>({name:m.markaz,id:m.markaz_id,kind:'markaz',district:d.district,tehsil:t.tehsil,markaz:m.markaz,s:summary(m.schools||[])}))))}
-else {out=filteredSchools().map(s=>({name:s.school,id:s.emis,kind:'school',district:s.district,tehsil:s.tehsil,markaz:s.markaz,school:s,s:summary([s])}))}
-const q=$('search').value.trim().toLowerCase();if(q && view!=='school')out=out.filter(x=>[x.name,x.district,x.tehsil,x.markaz].some(v=>String(v||'').toLowerCase().includes(q)));return out}
-function render(){if(!data)return;rows=groupsForLevel();renderCards();const school=view==='school';const headers=school?['School / EMIS','District','Tehsil','Markaz','Students','Present','Absent','Unmarked','Student %','Teacher Present','Teacher Absent','Teacher %']:['Name','Schools','Students','Present','Absent','Unmarked','Student %','Teachers Present','Teachers Absent','Teacher %'];$('head').innerHTML='<tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr>';
-$('body').innerHTML=rows.length?rows.map(x=>{const s=school?x.school:x.s;const rate=school?pct(s.students_present,s.total_students):(s.sr??s.student_attendance_pct);const tr=school?pct(s.teachers?.present,(+s.teachers?.present||0)+(+s.teachers?.absent||0)):(s.tr??s.teacher_attendance_pct);const clickable=view!=='school';const first=clickable?'<span class="name-link" data-name="'+esc(x.name)+'" data-kind="'+x.kind+'" data-district="'+esc(x.district||'')+'" data-tehsil="'+esc(x.tehsil||'')+'" data-markaz="'+esc(x.markaz||'')+'">'+esc(x.name)+'</span>':'<b>'+esc(x.name)+'</b><br><span class="muted">'+esc(x.id)+'</span>';
-if(school)return '<tr><td>'+first+'</td><td>'+esc(s.district)+'</td><td>'+esc(s.tehsil)+'</td><td>'+esc(s.markaz)+'</td><td>'+num(s.total_students)+'</td><td>'+num(s.students_present)+'</td><td>'+num(s.students_absent)+'</td><td>'+num(s.students_unmarked)+'</td><td class="'+(rate>=90?'good':rate<70?'bad':'')+'">'+fmtPct(rate)+'<div class="bar"><span style="width:'+Math.min(100,Math.max(0,Number(rate)||0))+'%"></span></div></td><td>'+num(s.teachers?.present)+'</td><td>'+num(s.teachers?.absent)+'</td><td>'+fmtPct(pct(s.teachers?.present,(+s.teachers?.present||0)+(+s.teachers?.absent||0)))+'</td></tr>';
-return '<tr><td>'+first+(view==='district'?'':'<br><span class="muted">'+esc(x.district||'')+(x.tehsil?' · '+esc(x.tehsil):'')+(x.markaz?' · '+esc(x.markaz):'')+'</span>')+'</td><td>'+num(s.schools)+'</td><td>'+num(s.students)+'</td><td>'+num(s.sp)+'</td><td>'+num(s.sa)+'</td><td>'+num(s.su)+'</td><td class="'+(rate>=90?'good':rate!=null&&rate<70?'bad':'')+'">'+fmtPct(rate)+'<div class="bar"><span style="width:'+Math.min(100,Math.max(0,Number(rate)||0))+'%"></span></div></td><td>'+num(s.tp)+'</td><td>'+num(s.ta)+'</td><td>'+fmtPct(tr)+'</td></tr>'}).join(''):'<tr><td colspan="'+headers.length+'" class="muted">No attendance records are available for this selection.</td></tr>';
-$('tableTitle').textContent=({district:'District Wise',tehsil:'Tehsil Wise',markaz:'Markaz Wise',school:'School Wise'}[view]||'Attendance')+' Attendance Report';$('rowCount').textContent=num(rows.length)+' rows';$('crumb').textContent=['Punjab',selected.d,selected.t,selected.m,view==='school'?'Schools':''].filter(Boolean).join('  ›  ');
-document.querySelectorAll('.tab').forEach(b=>b.classList.toggle('active',b.dataset.view===view));document.querySelectorAll('.name-link').forEach(el=>el.onclick=()=>{const kind=el.dataset.kind;if(kind==='district'){selected.d=el.dataset.name;selected.t='';selected.m='';view='tehsil'}else if(kind==='tehsil'){selected.d=el.dataset.district;selected.t=el.dataset.name;selected.m='';view='markaz'}else if(kind==='markaz'){selected.d=el.dataset.district;selected.t=el.dataset.tehsil;selected.m=el.dataset.name;view='school'}populateFilters();render()});
-const failed=Array.isArray(data.failed_school_requests)?data.failed_school_requests:[];const scoped=selected.d?failed.filter(x=>x.district===selected.d):failed;const notice=$('notice');if(!data.complete||failed.length){notice.style.display='block';notice.textContent=(selected.d?selected.d+': ':'Punjab: ')+scoped.length+' school(s) are listed as missing/incomplete in the recorded failure list. Available SIS attendance is displayed; missing values are not fabricated. Overall successful '+num(data.successful_schools||0)+' of '+num(data.inventory_schools||0)+' schools.'}else{notice.style.display='none';notice.textContent=''}
+function schoolsOf(d){return (d.tehsils||[]).flatMap(t=>(t.markazs||[]).flatMap(m=>m.schools||[]))}
+function districtSummary(d){
+ const a=schoolsOf(d);
+ const s={schools:a.length,students:0,sp:0,sa:0,su:0,tt:0,tp:0,ta:0,tu:0};
+ a.forEach(x=>{
+  s.students+=Number(x.total_students)||0;s.sp+=Number(x.students_present)||0;
+  s.sa+=Number(x.students_absent)||0;s.su+=Number(x.students_unmarked??Math.max(0,(+x.total_students||0)-(+x.students_present||0)-(+x.students_absent||0)))||0;
+  const t=x.teachers||{};
+  s.tt+=Number(t.total)||0;s.tp+=Number(t.present)||0;s.ta+=Number(t.absent)||0;
+  s.tu+=Number(t.unmarked??Math.max(0,(+t.total||0)-(+t.present||0)-(+t.absent||0)))||0;
+ });
+ s.sr=pct(s.sp,s.students);s.tr=pct(s.tp,s.tt);return s;
 }
-function populateFilters(){const D=data?.districts||[];const old={d:selected.d,t:selected.t,m:selected.m};$('district').innerHTML='<option value="">All Districts</option>'+D.map(d=>'<option value="'+esc(d.district)+'">'+esc(d.district)+'</option>').join('');$('district').value=selected.d;const d=D.find(x=>x.district===selected.d);const ts=(d?.tehsils||[]);$('tehsil').innerHTML='<option value="">All Tehsils</option>'+ts.map(t=>'<option value="'+esc(t.tehsil)+'">'+esc(t.tehsil)+'</option>').join('');$('tehsil').value=selected.t;const t=ts.find(x=>x.tehsil===selected.t);const ms=t?.markazs||[];$('markaz').innerHTML='<option value="">All Markazs</option>'+ms.map(m=>'<option value="'+esc(m.markaz)+'">'+esc(m.markaz)+'</option>').join('');$('markaz').value=selected.m}
-async function load(){const notice=$('notice');try{$('dataStatus').textContent='Loading SIS data…';const r=await fetch(DATA+'?t='+Date.now(),{cache:'no-store'});if(!r.ok)throw Error('Data file request failed (HTTP '+r.status+').');const payload=await r.json();if(!Array.isArray(payload.districts))throw Error('Data file has no districts array.');if(!payload.districts.length)throw Error('Data file contains no districts.');data=payload;populateFilters();const dt=payload.generated_at?new Date(payload.generated_at):null;$('reportDate').textContent='Latest Report: '+(dt&&!isNaN(dt)?dt.toLocaleString('en-PK',{timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'short'})+' PKT':'date unavailable');$('dataStatus').textContent=num(payload.successful_schools||0)+' schools with SIS attendance';render()}catch(e){$('dataStatus').textContent='Data unavailable';notice.style.display='block';notice.textContent='LIVE DATA LOAD ERROR: '+e.message+' The dashboard is ready, but the published data/punjab_attendance.json file must contain valid SIS data. Open the Actions workflow and check the “Collect complete SIS hierarchy” and “Commit live SIS data” steps.';$('body').innerHTML='<tr><td colspan="10" class="muted">Live SIS data could not be loaded. Please check the message above.</td></tr>';console.error(e)}}
-function exportExcel(){if(!window.XLSX){alert('Excel library not loaded');return}const heads=view==='school'?['School','EMIS','District','Tehsil','Markaz','Students','Present','Absent','Unmarked','Student %','Teacher Present','Teacher Absent']:['Name','Schools','Students','Present','Absent','Unmarked','Student %','Teachers Present','Teachers Absent','Teacher %'];const body=rows.map(x=>{const s=view==='school'?x.school:x.s;return view==='school'?[x.name,x.id,s.district,s.tehsil,s.markaz,s.total_students,s.students_present,s.students_absent,s.students_unmarked,fmtPct(pct(s.students_present,s.total_students)),s.teachers?.present??'',s.teachers?.absent??'']:[x.name,s.schools,s.students,s.sp,s.sa,s.su,fmtPct(s.sr),s.tp,s.ta,fmtPct(s.tr)]});const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([heads,...body]),'Attendance');XLSX.writeFile(wb,'Punjab_Attendance_'+view+'_'+new Date().toISOString().slice(0,10)+'.xlsx')}
-function exportPDF(){if(!window.jspdf){alert('PDF library not loaded');return}const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'a4'});doc.setFontSize(16);doc.text('SED Punjab Daily Attendance — '+view.toUpperCase(),40,32);doc.setFontSize(9);doc.text($('reportDate').textContent,40,47);const heads=view==='school'?['School / EMIS','District','Tehsil','Markaz','Students','Present','Absent','Unmarked','Student %','Teacher Present','Teacher Absent']:['Name','Schools','Students','Present','Absent','Unmarked','Student %','Teachers Present','Teachers Absent','Teacher %'];const body=rows.map(x=>{const s=view==='school'?x.school:x.s;return view==='school'?[x.name+' / '+x.id,s.district,s.tehsil,s.markaz,s.total_students,s.students_present,s.students_absent,s.students_unmarked,fmtPct(pct(s.students_present,s.total_students)),s.teachers?.present??'',s.teachers?.absent??'']:[x.name,s.schools,s.students,s.sp,s.sa,s.su,fmtPct(s.sr),s.tp,s.ta,fmtPct(s.tr)]});doc.autoTable({head:[heads],body,startY:58,styles:{fontSize:7,cellPadding:4},headStyles:{fillColor:[234,242,251],textColor:[23,52,95]}});doc.save('Punjab_Attendance_'+view+'_'+new Date().toISOString().slice(0,10)+'.pdf')}
-$('district').onchange=e=>{selected.d=e.target.value;selected.t='';selected.m='';populateFilters();render()};$('tehsil').onchange=e=>{selected.t=e.target.value;selected.m='';populateFilters();render()};$('markaz').onchange=e=>{selected.m=e.target.value;populateFilters();render()};$('search').oninput=render;
-document.querySelectorAll('.tab').forEach(b=>b.onclick=()=>{view=b.dataset.view;render()});
-$('clear').onclick=()=>{selected={d:'',t:'',m:''};$('search').value='';populateFilters();render()};$('refresh').onclick=load;$('excel').onclick=exportExcel;$('pdf').onclick=exportPDF;load();
+function selectedDistricts(){
+ const q=$('search').value.trim().toLowerCase(),d=$('district').value;
+ return (data?.districts||[]).map(x=>({name:x.district,id:x.district_id,s:districtSummary(x),raw:x}))
+ .filter(x=>(!d||x.name===d)&&(!q||x.name.toLowerCase().includes(q)));
+}
+function totals(list){return list.reduce((a,x)=>{const s=x.s;['schools','students','sp','sa','su','tt','tp','ta','tu'].forEach(k=>a[k]+=Number(s[k])||0);return a},{schools:0,students:0,sp:0,sa:0,su:0,tt:0,tp:0,ta:0,tu:0})}
+function renderCards(){
+ const s=totals(selectedDistricts());
+ $('cards').innerHTML=[
+ ['Districts',selectedDistricts().length],['Schools',s.schools],['Total Students',s.students],
+ ['Students Present',s.sp],['Students Absent',s.sa],['Students Unmarked',s.su],
+ ['Student Attendance',fmtPct(pct(s.sp,s.students))],['Total Teachers',s.tt],
+ ['Teachers Present',s.tp],['Teachers Absent',s.ta],['Teachers Unmarked',s.tu],
+ ['Teacher Attendance',fmtPct(pct(s.tp,s.tt))]
+ ].map(([a,b])=>'<div class="card"><div class="label">'+a+'</div><div class="num">'+(typeof b==='number'?num(b):b)+'</div></div>').join('');
+}
+function render(){
+ if(!data)return;
+ rows=selectedDistricts();renderCards();
+ const headers=['District','Schools with data','Total Students','Students Present','Students Absent','Students Unmarked','Student Attendance %','Total Teachers','Teachers Present','Teachers Absent','Teachers Unmarked','Teacher Attendance %'];
+ $('head').innerHTML='<tr>'+headers.map(h=>'<th>'+h+'</th>').join('')+'</tr>';
+ $('body').innerHTML=rows.length?rows.map(x=>{const s=x.s;return '<tr><td><b>'+esc(x.name)+'</b><br><span class="muted">'+esc(x.id||'')+'</span></td><td>'+num(s.schools)+'</td><td>'+num(s.students)+'</td><td>'+num(s.sp)+'</td><td>'+num(s.sa)+'</td><td>'+num(s.su)+'</td><td class="'+(s.sr>=90?'good':s.sr!=null&&s.sr<70?'bad':'')+'">'+fmtPct(s.sr)+'<div class="bar"><span style="width:'+Math.min(100,Math.max(0,Number(s.sr)||0))+'%"></span></div></td><td>'+num(s.tt)+'</td><td>'+num(s.tp)+'</td><td>'+num(s.ta)+'</td><td>'+num(s.tu)+'</td><td class="'+(s.tr>=90?'good':s.tr!=null&&s.tr<70?'bad':'')+'">'+fmtPct(s.tr)+'<div class="bar"><span style="width:'+Math.min(100,Math.max(0,Number(s.tr)||0))+'%"></span></div></td></tr>'}).join(''):'<tr><td colspan="12" class="muted">No district data available for this selection.</td></tr>';
+ $('tableTitle').textContent='Punjab District-wise Daily Attendance Report';
+ $('rowCount').textContent=rows.length+' districts shown';
+ $('crumb').textContent=$('district').value?('Punjab · '+$('district').value):'Punjab · All Districts';
+ const failed=Array.isArray(data.failed_school_requests)?data.failed_school_requests:[];
+ const notice=$('notice');
+ if(!data.complete||failed.length){notice.style.display='block';notice.textContent='Data status: '+num(data.successful_schools||0)+' of '+num(data.inventory_schools||0)+' school attendance records collected. '+num(failed.length)+' requests failed or were unavailable. Missing attendance is not fabricated as zero. Teacher totals are shown only where SIS sanctioned-post data was returned.'}
+ else{notice.style.display='none';notice.textContent=''}
+}
+function populateFilters(){
+ const old=$('district').value;
+ $('district').innerHTML='<option value="">All Punjab Districts</option>'+(data?.districts||[]).map(d=>'<option value="'+esc(d.district)+'">'+esc(d.district)+'</option>').join('');
+ if([...$('district').options].some(o=>o.value===old))$('district').value=old;
+}
+async function load(){
+ const notice=$('notice');
+ try{
+  $('dataStatus').textContent='Loading SIS data…';
+  const r=await fetch(DATA+'?t='+Date.now(),{cache:'no-store'});
+  if(!r.ok)throw Error('Data file request failed (HTTP '+r.status+').');
+  const payload=await r.json();
+  if(!Array.isArray(payload.districts)||!payload.districts.length)throw Error('Data file contains no district records.');
+  data=payload;populateFilters();
+  const dt=payload.generated_at?new Date(payload.generated_at):null;
+  $('reportDate').textContent='Latest Report: '+(dt&&!isNaN(dt)?dt.toLocaleString('en-PK',{timeZone:'Asia/Karachi',dateStyle:'medium',timeStyle:'short'})+' PKT':'date unavailable');
+  $('dataStatus').textContent=num(payload.successful_schools||0)+' school records · '+num(payload.district_count||payload.districts.length)+' districts';
+  render();
+ }catch(e){
+  $('dataStatus').textContent='Data unavailable';notice.style.display='block';
+  notice.textContent='LIVE DATA LOAD ERROR: '+e.message+' Please run the Punjab attendance workflow and check its logs.';
+  $('body').innerHTML='<tr><td colspan="12" class="muted">Live SIS data could not be loaded. Please check the message above.</td></tr>';
+  console.error(e);
+ }
+}
+function exportExcel(){
+ if(!window.XLSX){alert('Excel library not loaded');return}
+ const heads=['District','Schools with data','Total Students','Students Present','Students Absent','Students Unmarked','Student Attendance %','Total Teachers','Teachers Present','Teachers Absent','Teachers Unmarked','Teacher Attendance %'];
+ const body=rows.map(x=>{const s=x.s;return [x.name,s.schools,s.students,s.sp,s.sa,s.su,fmtPct(s.sr),s.tt,s.tp,s.ta,s.tu,fmtPct(s.tr)]});
+ const wb=XLSX.utils.book_new();XLSX.utils.book_append_sheet(wb,XLSX.utils.aoa_to_sheet([heads,...body]),'District Attendance');
+ XLSX.writeFile(wb,'Punjab_District_Attendance_'+new Date().toISOString().slice(0,10)+'.xlsx');
+}
+function exportPDF(){
+ if(!window.jspdf){alert('PDF library not loaded');return}
+ const doc=new window.jspdf.jsPDF({orientation:'landscape',unit:'pt',format:'a4'});
+ doc.setFontSize(15);doc.text('SED Punjab Daily District Attendance',35,28);
+ doc.setFontSize(8);doc.text($('reportDate').textContent,35,42);
+ const heads=['District','Schools','Students','Present','Absent','Unmarked','Student %','Teachers','Present','Absent','Unmarked','Teacher %'];
+ const body=rows.map(x=>{const s=x.s;return [x.name,s.schools,s.students,s.sp,s.sa,s.su,fmtPct(s.sr),s.tt,s.tp,s.ta,s.tu,fmtPct(s.tr)]});
+ doc.autoTable({head:[heads],body,startY:52,styles:{fontSize:7,cellPadding:4},headStyles:{fillColor:[234,242,251],textColor:[23,52,95]},margin:{left:25,right:25}});
+ doc.save('Punjab_District_Attendance_'+new Date().toISOString().slice(0,10)+'.pdf');
+}
+$('district').onchange=render;$('search').oninput=render;
+$('clear').onclick=()=>{$('district').value='';$('search').value='';render()};
+$('refresh').onclick=load;$('excel').onclick=exportExcel;$('pdf').onclick=exportPDF;load();
 </script></body></html>
